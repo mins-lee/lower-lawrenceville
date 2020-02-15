@@ -1,0 +1,13 @@
+.Rproj.user
+.Rhistory
+*.RData
+.Ruserdata
+*.Rproj
+*.csv
+*.txt
+*.txt
+*.cpg
+*.dbf
+*.prj
+*.shp
+*.shx
