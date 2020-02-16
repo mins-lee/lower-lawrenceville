@@ -165,10 +165,47 @@ dat_cleaned2<-dat_cleaned%>%
   unique()%>%
   left_join(no_null_moveouts,by=c("CLIENT_ID","MOVEINDATE","PRIMARYSTREET"))
 
-check<-dat_cleaned2%>%
-  filter(CLIENT_ID==3972573268)
+############################################## Impute subsequent move-in dates as move-out dates ######
+## For some records, a move-out date was not recorded even though a subsequent address / move-in date exists
+## Goal: for each client, replace null moveoutdates with the next moveindate
+## Steps:
+## 1.) Iterate through clients, create subset of frame for given client
+## 2.) iterate through 1: number of rows-1. Create row for first_address and second_address
+## 3.) if moveoutdate is null for first_address, replace it with moveindate from second address
+#create a unique identifier in dat_cleaned, that will be used to overwrite records
+dat_cleaned3<-dat_cleaned2%>%
+  mutate(ROW_ID=row_number())
+#create counter for number of changes
+changes<-0
+for(client in dat_cleaned3$CLIENT_ID){
+  client_subset<-dat_cleaned3%>%
+    filter(CLIENT_ID==client)%>%
+    arrange(MOVEINDATE)
+  #only apply the for loop below if there's more than one row in client_subset
+  if(nrow(client_subset)>1){
+    #iterate through rows, up until one before last one
+    for(i in 1:(nrow(client_subset)-1)){
+      first_address<-client_subset[i,]
+      next_address<-client_subset[i+1,]
+      if(is.na(first_address$MOVEOUTDATE)){
+        #increment change counter up
+        changes<-changes+1
+        #replace missing moveout date with new moveindate
+        first_address$MOVEOUTDATE<-next_address$MOVEINDATE
+        #update row of dat_cleaned3
+        dat_cleaned3[first_address$ROW_ID,]<-first_address
+        
+      }
+    }
+    
+  }
 
-save(dat_cleaned2,file="cleaned data.RData")
+}
+
+length(dat_cleaned3[is.na(dat_cleaned3$MOVEOUTDATE),]$ROW_ID)
+
+
+save(dat_cleaned3,file="cleaned data.RData")
 load("cleaned data.RData")
 
 unique_addr<-dat_cleaned%>%
@@ -182,7 +219,7 @@ unique_15206_addr<-dat_cleaned%>%
 
 write_csv(unique_addr,"unique cleaned addr.csv")
 write_csv(unique_15206_addr,"unique cleaned addresses - 15206.csv")
-write_csv(dat_cleaned,"cleaned data.csv")
+write_csv(dat_cleaned3,"cleaned data.csv")
 
 east_lib<-dat_cleaned%>%filter(ZIP==15206)
 length(unique(east_lib$PRIMARYSTREET))

@@ -20,14 +20,14 @@ register_google(key=api_key,account_type="standard")
 
 #find individuals who live in 15206 at any point
 
-zip_15206_clients<-unique(dat_cleaned[dat_cleaned$ZIP==15206,]$CLIENT_ID)
+zip_15206_clients<-unique(dat_cleaned3[dat_cleaned3$ZIP==15206,]$CLIENT_ID)
 
-s_negley_300_clients<-dat_cleaned[grep("3[0-9][0-9] S Negley",dat_cleaned$PRIMARYSTREET,ignore.case=TRUE),]$CLIENT_ID
+s_negley_300_clients<-dat_cleaned3[grep("3[0-9][0-9] S Negley",dat_cleaned3$PRIMARYSTREET,ignore.case=TRUE),]$CLIENT_ID
 
 potential_east_lib_clients<-c(zip_15206_clients, s_negley_300_clients)
 
 #find all addresses associated with those individuals
-potential_east_lib_addresses<-dat_cleaned%>%
+potential_east_lib_addresses<-dat_cleaned3%>%
   # limit just to clients who may have lived in east liberty at one point (from previous step)
   filter(CLIENT_ID %in% potential_east_lib_clients)%>%
   # change addresses to geocode ready format
@@ -126,6 +126,8 @@ names(east_lib_any)
 #save geocoded east lib any as rData
 
 save(east_lib_any,file="geocoded east lib res addresses.Rdata")
+
+
 
 test<-dat_cleaned%>%filter(grepl("highland",PRIMARYSTREET,ignore.case=TRUE))
 
