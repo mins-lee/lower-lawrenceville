@@ -75,8 +75,8 @@ east_lib_any4<-east_lib_any3%>%
   st_as_sf()
 
 #save rdata file
-save(east_lib_any4,file="geocoded east lib res addresses.Rdata")
+save(east_lib_any4,file="initial eda/geocoded east lib res addresses.Rdata")
 
 #export as x/y coordinates
-st_write(east_lib_any4,"east_lib_res_addr.csv",layer_options = "GEOMETRY=AS_XY")
+st_write(east_lib_any4,"initial EDA/east_lib_res_addr.csv",layer_options = "GEOMETRY=AS_XY")
 

@@ -205,8 +205,8 @@ for(client in dat_cleaned3$CLIENT_ID){
 length(dat_cleaned3[is.na(dat_cleaned3$MOVEOUTDATE),]$ROW_ID)
 
 
-save(dat_cleaned3,file="cleaned data.RData")
-load("cleaned data.RData")
+save(dat_cleaned3,file="initial eda/cleaned data.RData")
+load("initial eda/cleaned data.RData")
 
 unique_addr<-dat_cleaned%>%
   group_by(PRIMARYSTREET)%>%

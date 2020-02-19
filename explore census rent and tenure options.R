@@ -36,23 +36,34 @@ rent_by_movein%>%
   labs(x="year",y="median rent",fill="census tract",title="median rent by census tract")
 
 #retrieve tract data level median rent data for each year from
-years<-c(2011,2014,2017)
+years<-c(2012,2014,2017)
+
+years<-2012:2017
+
 for(year in years){
-  temp_data<-get_acs(geography="tract",
+  print(year)
+  temp_data<-get_acs(geography="county",
                      state = "PA",
                      county = "Allegheny",
-                     variables = c("Median Rent" = "B25113_002"),
+                     variables = c("Median year structure built" = "B25035_001"),
                      year = year,
-                     survey="acs3")%>%
+                     survey="acs1")%>%
     filter(GEOID%in%east_lib_tracts)%>%
     mutate(low=estimate-moe,
            high=estimate+moe)%>%
     select(GEOID,estimate,low,high)
   if(year==2012){
-    rent_by_year<-temp_data
+    year_built<-temp_data
   }else{
-    rent_by_year<-rbind(rent_by_year,temp_data)
+    year_built<-rbind(year_built,temp_data)
   }
 }
 
 
+dat<-get_acs(geography = "tract",
+             variables=c("Median Individual Income" = "B06011_001",
+                         "Median Family Income" = "B19113_001"),
+             year=2017,
+             state="PA",
+             county="Allegheny",
+             geometry=FALSE)
