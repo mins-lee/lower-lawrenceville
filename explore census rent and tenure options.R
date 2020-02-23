@@ -2,9 +2,38 @@
 
 library(dplyr)
 library(tidycensus)
-?load_variables
+library(openxlsx)
+#create excel workbook where each sheet is a year's worth of columns
+years<-2010:2018
 
-v17<-load_variables(year=2017,dataset="acs1")
+#following process here: https://www.r-bloggers.com/easily-make-multi-tabbed-xlsx-files-with-openxlsx/
+#create blank workbook
+wb <- createWorkbook()
+
+subject_1<-get_acs(geography="tract",
+              table="S0101",
+              year=2017,
+              state="PA",
+              county="Allegheny",
+              output="wide")%>%
+  filter(grepl("1113",GEOID,ignore.case=FALSE))
+subject_vars<-load_variables(year=2017,dataset="acs5/subject",cache=FALSE)%>%
+  filter(grepl("S0101|S1101|S2301",name,ignore.case=FALSE))
+
+
+
+#iterate through years, adding the variables for each year to the sheet
+for(year in years){
+  #pull acs5columns for given year
+  dat<-load_variables(year=year,dataset="acs5")%>%
+    mutate(label=gsub("Estimate!!Total!!","",label))%>%
+    mutate(label=gsub("!!","",label))
+  #write columns to excel worksheet
+  addWorksheet(wb,paste0(year))
+  writeData(wb,paste0(year),dat)
+}
+
+saveWorkbook(wb, file = "all acs columns.xlsx", overwrite = TRUE)
 
 rent<-v17%>%
   mutate(label = gsub("!","",label),

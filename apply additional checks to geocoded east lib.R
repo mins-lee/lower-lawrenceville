@@ -9,10 +9,18 @@ library(ggmap)
 library(rgdal)
 library(tidycensus)
 
+setwd("initial eda")
 
 #load east lib any
 load("geocoded east lib res addresses.Rdata")
 
+#accidentally overwrote old geocoded addresses, so load from gpkg file
+east_lib_any<-st_read("east_lib_res_addr.gpkg")%>%
+  #change moveout dates to dates
+  mutate(MOVEINDATE=paste0(MOVEINDATE),
+         MOVEOUTDATE=paste0(MOVEOUTDATE))%>%
+  mutate(MOVEINDATE=as.Date(MOVEINDATE,format="%h/%d/%Y"),
+         MOVEOUTDATE=as.Date(MOVEOUTDATE,format="%h/%d/%Y"))
 #################################################### REMOVE ADDRESSES WITH DUPLICATES EXCEPT NULL MOVEOUT###############
 ##  Several rows are exactly identical except one will have a move-out date and one will be null
 ##  Steps:
@@ -44,6 +52,7 @@ east_lib_any2<-east_lib_any%>%
 east_lib_any3<-east_lib_any2%>%
   as.data.frame()%>%
   mutate(ROW_ID=row_number())
+
 #create counter for number of changes
 changes<-0
 for(client in east_lib_any3$CLIENT_ID){
@@ -75,8 +84,8 @@ east_lib_any4<-east_lib_any3%>%
   st_as_sf()
 
 #save rdata file
-save(east_lib_any4,file="initial eda/geocoded east lib res addresses.Rdata")
+save(east_lib_any4,file="geocoded east lib res addresses imputed moveouts.Rdata")
 
 #export as x/y coordinates
-st_write(east_lib_any4,"initial EDA/east_lib_res_addr.csv",layer_options = "GEOMETRY=AS_XY")
+st_write(east_lib_any4,"east_lib_res_addr.csv",layer_options = "GEOMETRY=AS_XY")
 

@@ -1,8 +1,12 @@
+rm(list=ls())
 #Nick's datafiles have been downloaded into the working directory
 library(readr)
 library(dplyr)
 library(stringr)
+#turn off scientific notation
+options(scipen=999)
 #store list of files
+setwd("initial eda")
 file_names<-list.files(pattern="*.txt")
 #use lapply to read in each file (using the read_tsv function) and store them in a list
 data_list<-lapply(file_names,function(x) read_tsv(x))
@@ -145,25 +149,110 @@ dat_cleaned<-dat%>%
   mutate(SECONDARYSTREET=gsub('(NA)*','',SECONDARYSTREET))%>%
   #filter to only heads of households
   filter(RELATIONSHIP=="Head")%>%
+  #remove columns for secondary address and city, since these are causing false matches
+  select(-c("SECONDARYSTREET","CITY"))%>%
+  #make zip code character
+  mutate(ZIP=as.character(as.integer(ZIP)))%>%
+  #replace periods in primary address with spaces, then replace double spaces with single spaces
+  mutate(PRIMARYSTREET=gsub("\\."," ",PRIMARYSTREET),
+         PRIMARYSTREET=gsub("  "," ",PRIMARYSTREET))%>%
+  #make primary street all lower case
+  mutate(PRIMARYSTREET=tolower(PRIMARYSTREET))%>%
+  #replace full name road, street, avenue with abbreviations
+  mutate(PRIMARYSTREET=gsub(" road$"," rd",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" avenue$"," ave",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" street$"," st",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" boulevard$"," blvd",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" court$"," ct",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" place$"," pl",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" drive$"," dr",PRIMARYSTREET),
+         PRIMARYSTREET=gsub(" lane$", " ln",PRIMARYSTREET))%>%
+  #replace " north " with " n " and " south " with " s ", making sure 
+  mutate(PRIMARYSTREET=gsub("( south)[ &^(st$| ave$)]", " s ", PRIMARYSTREET),
+         PRIMARYSTREET=gsub("( north)[ &^(st$| ave$)]", " n ", PRIMARYSTREET),
+         PRIMARYSTREET=gsub("( west)[ &^(st$| ave$)]", " w ", PRIMARYSTREET),
+         PRIMARYSTREET=gsub("( east)[ &^(st$| ave$)]", " e ",PRIMARYSTREET))%>%
+  #Replace "5th" with "fifth" and "4th" with "fourth"
+  mutate(PRIMARYSTREET=gsub("5th", "fifth",PRIMARYSTREET),
+         PRIMARYSTREET=gsub("4th", "fourth",PRIMARYSTREET))%>%
+  #replace
   unique()
+#################################################### REMOVE ADDRESSES WITH DUPLICATES Program / Moveout###############
+## Several rows are almost identical except one will be HACP, one will be ACHA, and the move-out dates will be different
+## Solution: impute program as "both", keep later moveout
+## Steps:
+## 1.) Create frame of CLIENT_ID, MOVEINDATE, PRIMARYSTREET, GENDER, RACE, RELATIONSHIP, ZIP, with multiple HA's
+## 2.) For rows that match the above frame on those variables, update HA to read both
+## 3.) Group by all columns (including HA), summarise max moveout (removing NAs) (this might take care of other issue too?)
+different_HAs<-dat_cleaned%>%
+  #group by everything but HA, Race, Moveoutdate (race is excluded because many records used different race for different HA)
+  group_by(CLIENT_ID,MOVEINDATE,PRIMARYSTREET,GENDER,RELATIONSHIP,ZIP)%>%
+  summarise(count=length(unique(HA)))%>%
+  ungroup()%>%
+  #only keep rows with count >=2
+  filter(count>=2)%>%
+  select(-count)
+
+dat_cleaned2<-dat_cleaned%>%
+  #limit to just rows that match different_HAs
+  inner_join(different_HAs)%>%
+  #update HA to be "both"
+  mutate(HA="Both")%>%
+  #make unique
+  unique()%>%
+  #add the rest of the rows back in
+  bind_rows(dat_cleaned%>%
+              anti_join(different_HAs))
+
+#################################################### Identical except different race ###############
+#identify rows that are identical except for different races
+different_race<-dat_cleaned2%>%
+  #group by everything but moveoutdate
+  group_by_at(setdiff(names(.),c("RACE","MOVEOUTDATE")))%>%
+  summarise(count=length(unique(RACE)))%>%
+  filter(count>=2)%>%
+  select(-count)%>%
+  ungroup()
+
+#replace those rows with multiracial
+dat_cleaned3<-dat_cleaned2%>%
+  #identify rows with multiple races
+  inner_join(different_race)%>%
+  #update race to multi-racial
+  mutate(RACE="Multi-Racial")%>%
+  #make unique
+  unique()%>%
+  #join in rows that don't match again
+  bind_rows(dat_cleaned2%>%
+              anti_join(different_race))
+
 
 #################################################### REMOVE ADDRESSES WITH DUPLICATES EXCEPT NULL MOVEOUT###############
 ##  Several rows are exactly identical except one will have a move-out date and one will be null
-##  Steps:
-##  1.) create separate dataset, "no_null_moveouts" that just contains client, movein, moveout, address, with moveout removed
-##  2.) remove move_out from cleaned_data frame, delete non-unique rows
-##  3.) left join cleaned_data with "no_null_moveouts"
+##  Realized this is a specific case of differing move-out dates, so just keeping max moveout dates solves both problems
+dat_cleaned4<-dat_cleaned3%>%
+  #group by everything but moveoutdate
+  group_by_at(setdiff(names(.),"MOVEOUTDATE"))%>%
+  #keep max moveout
+  summarise(MOVEOUTDATE=max(MOVEOUTDATE,na.rm=TRUE))%>%
+  #max function returns -Inf if all are na, so replace those with NAs again
+  mutate(MOVEOUTDATE=na_if(MOVEOUTDATE,-Inf))%>%
+  ungroup()
 
-no_null_moveouts<-dat_cleaned%>%
-  select(CLIENT_ID,MOVEINDATE,MOVEOUTDATE,PRIMARYSTREET)%>%
-  #delete null moveouts
-  filter(!is.na(MOVEOUTDATE))
 
-dat_cleaned2<-dat_cleaned%>%
-  #remove moveoutdate column
-  select(-MOVEOUTDATE)%>%
-  unique()%>%
-  left_join(no_null_moveouts,by=c("CLIENT_ID","MOVEINDATE","PRIMARYSTREET"))
+  
+
+
+  
+
+#test remaining duplicate records
+remaining_dups<-dat_cleaned4%>%
+  group_by(CLIENT_ID,MOVEINDATE)%>%
+  summarise(count=n())%>%
+  filter(count>=2)%>%
+  select(-count)%>%
+  left_join(dat_cleaned4)
+
 
 ############################################## Impute subsequent move-in dates as move-out dates ######
 ## For some records, a move-out date was not recorded even though a subsequent address / move-in date exists
@@ -173,12 +262,12 @@ dat_cleaned2<-dat_cleaned%>%
 ## 2.) iterate through 1: number of rows-1. Create row for first_address and second_address
 ## 3.) if moveoutdate is null for first_address, replace it with moveindate from second address
 #create a unique identifier in dat_cleaned, that will be used to overwrite records
-dat_cleaned3<-dat_cleaned2%>%
+dat_cleaned5<-dat_cleaned4%>%
   mutate(ROW_ID=row_number())
 #create counter for number of changes
 changes<-0
-for(client in dat_cleaned3$CLIENT_ID){
-  client_subset<-dat_cleaned3%>%
+for(client in dat_cleaned5$CLIENT_ID){
+  client_subset<-dat_cleaned5%>%
     filter(CLIENT_ID==client)%>%
     arrange(MOVEINDATE)
   #only apply the for loop below if there's more than one row in client_subset
@@ -192,8 +281,8 @@ for(client in dat_cleaned3$CLIENT_ID){
         changes<-changes+1
         #replace missing moveout date with new moveindate
         first_address$MOVEOUTDATE<-next_address$MOVEINDATE
-        #update row of dat_cleaned3
-        dat_cleaned3[first_address$ROW_ID,]<-first_address
+        #update row of dat_cleaned4
+        dat_cleaned5[first_address$ROW_ID,]<-first_address
         
       }
     }
@@ -202,17 +291,37 @@ for(client in dat_cleaned3$CLIENT_ID){
 
 }
 
-length(dat_cleaned3[is.na(dat_cleaned3$MOVEOUTDATE),]$ROW_ID)
+#find remaining duplicates: same client and moveindate, or same client and primary address
+same_client_movein<-dat_cleaned5%>%
+  group_by(CLIENT_ID,MOVEINDATE)%>%
+  summarise(count=n())%>%
+  filter(count>=2)%>%
+  select(-count)%>%
+  left_join(dat_cleaned5)
 
+write_csv(same_client_movein,"same client and moveindate.csv")
 
-save(dat_cleaned3,file="initial eda/cleaned data.RData")
-load("initial eda/cleaned data.RData")
+same_client_primary<-dat_cleaned5%>%
+  group_by(CLIENT_ID,PRIMARYSTREET)%>%
+  summarise(count=n())%>%
+  filter(count>=2)%>%
+  select(-count)%>%
+  left_join(dat_cleaned5)
+write_csv(same_client_primary,"same client and primary address.csv")
+test<-dat_cleaned5%>%
+  filter(CLIENT_ID%in%same_client_primary$CLIENT_ID)%>%
+  arrange(CLIENT_ID,MOVEINDATE)
 
-unique_addr<-dat_cleaned%>%
+test2<-dat_cleaned%>%
+  filter(CLIENT_ID==3276631)
+save(dat_cleaned5,file="cleaned data .RData")
+load("cleaned data.RData")
+
+unique_addr<-dat_cleaned3%>%
   group_by(PRIMARYSTREET)%>%
   summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
 
-unique_15206_addr<-dat_cleaned%>%
+unique_15206_addr<-dat_cleaned3%>%
   filter(ZIP==15206)%>%
   group_by(PRIMARYSTREET)%>%
   summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
@@ -220,6 +329,7 @@ unique_15206_addr<-dat_cleaned%>%
 write_csv(unique_addr,"unique cleaned addr.csv")
 write_csv(unique_15206_addr,"unique cleaned addresses - 15206.csv")
 write_csv(dat_cleaned3,"cleaned data.csv")
+
 
 east_lib<-dat_cleaned%>%filter(ZIP==15206)
 length(unique(east_lib$PRIMARYSTREET))
@@ -267,3 +377,23 @@ relationship_breakdown<-dat_cleaned%>%
   summarise(count=length(unique(CLIENT_ID)))
 
 write_csv(relationship_breakdown,"number of clients per householder status.csv")
+
+
+
+############################ OLD CODE BEFORE HERE ###################################
+##  Steps:
+##  1.) create separate dataset, "no_null_moveouts" that just contains client, movein, moveout, address, with moveout removed
+##  2.) remove move_out from cleaned_data frame, delete non-unique rows
+##  3.) left join cleaned_data with "no_null_moveouts"
+
+# no_null_moveouts<-dat_cleaned2%>%
+#   select(CLIENT_ID,MOVEINDATE,MOVEOUTDATE,PRIMARYSTREET)%>%
+#   #delete null moveouts
+#   filter(!is.na(MOVEOUTDATE))
+# 
+# dat_cleaned3<-dat_cleaned2%>%
+#   #remove moveoutdate column
+#   select(-MOVEOUTDATE)%>%
+#   unique()%>%
+#   left_join(no_null_moveouts,by=c("CLIENT_ID","MOVEINDATE","PRIMARYSTREET"))
+

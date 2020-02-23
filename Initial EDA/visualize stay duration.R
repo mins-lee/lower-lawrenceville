@@ -11,20 +11,19 @@ library(ggplot2)
 library(tidyr)
 library(scales)
 
-
 #load the east lib address dataset
-load("geocoded east lib res addresses.Rdata")
-load("cleaned data.RData")
+load("initial eda/geocoded east lib res addresses imputed moveouts.Rdata")
+load("initial eda/cleaned data.RData")
 #add a column for duration of stay
 
-east_lib_any2<-east_lib_any%>%
+east_lib_any5<-east_lib_any4%>%
   #replace null move-out dates with Jan 23, the day Nick gave us the data
-  mutate(MOVEOUTDATE = ifelse(is.na(MOVEOUTDATE),
-                              "Jan/23/2020",
+  mutate(MOVEOUTDATE = if_else(is.na(MOVEOUTDATE),
+                              as.Date("Jan/23/2020",format="%h/%d/%Y"),
                               MOVEOUTDATE))%>%
-  #convert the dates from character
-  mutate(MOVEINDATE=as.Date(MOVEINDATE,format="%h/%d/%Y"),
-         MOVEOUTDATE=as.Date(MOVEOUTDATE,format="%h/%d/%Y"))%>%
+  # #convert the dates from character
+  # mutate(MOVEINDATE=as.Date(MOVEINDATE,format="%h/%d/%Y"),
+  #        MOVEOUTDATE=as.Date(MOVEOUTDATE,format="%h/%d/%Y"))%>%
   #if the move in date is less than jan 1 1970, make it jan 1 1970
   mutate(MOVEINDATE = dplyr::if_else(MOVEINDATE<as.Date("Jan/01/1970",format="%h/%d/%Y"),
                              as.Date("Jan/01/1970",format="%h/%d/%Y"),
@@ -34,8 +33,7 @@ east_lib_any2<-east_lib_any%>%
   mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE))
 
 
-
-for_median<-east_lib_any2%>%
+for_median<-east_lib_any5%>%
   mutate(` `=ifelse(!east_lib_address,"Outside East Liberty","East Liberty Address")%>%
            factor(levels=c("Outside East Liberty","East Liberty Address")))%>%
   mutate(`Length of Stay (years)` = stay_duration/365)%>%
@@ -47,7 +45,7 @@ median_duration<-median(for_median$stay_duration)/365
 
 
 #find the geometric distribution of stay durations
-east_lib_any2%>%
+east_lib_any5%>%
   mutate(` `=ifelse(!east_lib_address,"Outside East Liberty","East Liberty Address")%>%
            factor(levels=c("Outside East Liberty","East Liberty Address")))%>%
   mutate(`Length of Stay (years)` = stay_duration/365)%>%
@@ -62,10 +60,11 @@ east_lib_any2%>%
   theme(legend.position="bottom")+
   labs(title = "Distribution of Address Durations")
 
+
 #for each year, find the number of people moving in and out of east liberty
 #create list of years
-years=c(format(east_lib_any2$MOVEINDATE,"%Y"),
-        format(east_lib_any2$MOVEOUTDATE,"%Y"))%>%unique()
+years=c(format(east_lib_any5$MOVEINDATE,"%Y"),
+        format(east_lib_any5$MOVEOUTDATE,"%Y"))%>%unique()
 
 #create a frame that will count the number of people moving in and out of east lib by year
 east_lib_movements = data.frame(year = years,
@@ -78,9 +77,9 @@ east_lib_movements = data.frame(year = years,
   #year. If they did, up the counter by one for the given year
 # year<-2009
 # client<-2435849681
-for(client in east_lib_any2$CLIENT_ID%>%unique){
+for(client in east_lib_any5$CLIENT_ID%>%unique){
   #limit data to just given client
-  client_frame<-east_lib_any2%>%filter(CLIENT_ID==client)%>%
+  client_frame<-east_lib_any5%>%filter(CLIENT_ID==client)%>%
     arrange(MOVEINDATE)%>%
     mutate(move_in_year = format(MOVEINDATE,"%Y")%>%as.numeric,
            move_out_year = format(MOVEOUTDATE,"%Y")%>%as.numeric)
@@ -88,8 +87,8 @@ for(client in east_lib_any2$CLIENT_ID%>%unique){
   #set a marker for whether or not the "previous" address was in east liberty based on first address
   previous_address_east_lib=client_frame[1,]$east_lib_address
   #set range of years to iterate through
-  min_year = min(client_frame$move_in_year)
-  max_year = max(client_frame$move_out_year)
+  min_year = min(client_frame$move_in_year,na.rm=TRUE)
+  max_year = max(client_frame$move_out_year,na.rm=TRUE)
   #iterate through years
   for(year in min_year:max_year){
     #create a subset of the client's frame for the given year
@@ -137,7 +136,8 @@ for(client in east_lib_any2$CLIENT_ID%>%unique){
   }
   
 }
-
+library(tidyr)
+library(scales)
 #create a bar chart showing movement in / out of east liberty by year
 east_lib_movements%>%
   #make moves out negative
@@ -218,13 +218,13 @@ length(dat_cleaned2[is.na(dat_cleaned2$MOVEOUTDATE),]$CLIENT_ID)
 length(dat_cleaned2[format(dat_cleaned2$MOVEINDATE,"%Y")<=1994,]$CLIENT_ID)
 
 ## create a plot comparing the distributions for a.) dropping moveout nulls and b.) replace with jan 23 2020
-dat_cleaned2%>%
+dat_cleaned3%>%
   mutate(MOVEOUTDATE = if_else(is.na(MOVEOUTDATE),
                               as.Date("Jan/23/2020",format="%h/%d/%Y"),
                               MOVEOUTDATE))%>%
   #create a marker for if nulls were dropped
   mutate(null_moveout = "impute Jan/23/2020")%>%
-  rbind(dat_cleaned2%>%
+  rbind(dat_cleaned3%>%
           filter(!is.na(MOVEOUTDATE))%>%
           mutate(null_moveout = "drop null moveouts"))%>%
   mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE))%>%
@@ -236,10 +236,10 @@ dat_cleaned2%>%
   geom_density(aes(x=`Length of Stay (years)`,fill=null_moveout),alpha=.35)+
   theme(legend.position="bottom")+
   labs(title = "Impact of strategy for null move-outs\non distribution of stay durations")+
-  scale_fill_viridis_d()
+  scale_fill_brewer(palette="Dark2")
 
 ## compare averaging at the stay level to averaging at the individual level
-rbind(dat_cleaned2%>%
+rbind(dat_cleaned3%>%
         filter(!is.na(MOVEOUTDATE))%>%
         filter(format(MOVEINDATE,"%Y")>=1995)%>%
         mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE)/365)%>%
@@ -248,7 +248,7 @@ rbind(dat_cleaned2%>%
         ungroup()%>%
         select(stay_duration)%>%
         mutate(method="individual level average"),
-      dat_cleaned2%>%
+      dat_cleaned3%>%
         filter(!is.na(MOVEOUTDATE))%>%
         filter(format(MOVEINDATE,"%Y")>=1995)%>%
         mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE)/365)%>%
@@ -269,7 +269,6 @@ rbind(dat_cleaned2%>%
  #col 2: first east lib address
  #col 3: first post east lib address (or null)
  #col4:  first post col 3 east lib address
-client_id<-east_lib_any2$CLIENT_ID[1]
 returners<-function(client_id){
   client_frame<-east_lib_any2%>%
     filter(CLIENT_ID==client_id)%>%
@@ -434,5 +433,11 @@ test<-dat_cleaned2%>%
 median(test$stay_duration)
 mean(test$stay_duration)
 
-test2<-test%>%
-  filter(is.na(stay_duration))
+min_client<-east_lib_any5[east_lib_any5$stay_duration<0,]$CLIENT_ID
+test<-east_lib_any5%>%
+  filter(CLIENT_ID%in%min_client)
+
+test2<-east_lib_any2%>%
+  filter(CLIENT_ID=="718716662")
+
+
