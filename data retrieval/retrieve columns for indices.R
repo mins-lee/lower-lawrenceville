@@ -3,16 +3,23 @@ library(dplyr)
 library(tidyr)
 library(sf)
 library(openxlsx)
+
 #this code references the excel file Meredith made breaking down the different columns available by year
 
 #goal: create a separate dataframe for each year that contains all of the columns needed
 
 years<-2010:2018
 
+# specify the geographic format for exporting the files: 
+# see "Guessing a Driver for Output" at this link for possible formats: 
+  #https://cran.r-project.org/web/packages/sf/vignettes/sf2.html
+export_format<-".gpkg"
+
+
 #create a list to store the dataframes
 year_indices<-list()
-setwd("data retrieval")
 #create a directory to store index files
+setwd("data retrieval")
 dir.create("index files")
 #create a named list of columns that can be pulled for all years from acs5
 to_retrieve_acs5<-c(
@@ -157,7 +164,7 @@ names(indices_list)<-years
 
 #write each year to excel csv file
 for(year in years){
-  st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,".gpkg"))
+  st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,export_format))
   
 }
 
