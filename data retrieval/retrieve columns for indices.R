@@ -1,15 +1,19 @@
 library(tidycensus)
 library(dplyr)
-
+library(tidyr)
+library(sf)
+library(openxlsx)
 #this code references the excel file Meredith made breaking down the different columns available by year
 
 #goal: create a separate dataframe for each year that contains all of the columns needed
 
-years<-2000:2018
+years<-2010:2018
 
 #create a list to store the dataframes
 year_indices<-list()
-
+setwd("data retrieval")
+#create a directory to store index files
+dir.create("index files")
 #create a named list of columns that can be pulled for all years from acs5
 to_retrieve_acs5<-c(
   # population in occupied housing units
@@ -80,9 +84,91 @@ to_retrieve_study_15_18<-c(
   # population over 25 to 64 with bachelors degree
   "over_25_bachelors" = "S2301_C01_035")
 
+year<-2010
+#create a function that takes a year as an argument, and returns a single dataframe at the tract level with all of the colums
+retrieve_census_data<-function(year){
+  # set the list of study columns to retrieve based on the year
+  if(year>=2015){
+    to_retrieve_study<-to_retrieve_study_15_18
+  }else{
+    to_retrieve_study<-to_retrieve_study_10_14
+  }
+  
+  # pull data from normal acs5
+  acs5<-get_acs(year = year,
+                variables = to_retrieve_acs5,
+                geography = "tract",
+                state = "PA",
+                county = "Allegheny",
+                #retrieve geometry for spatial mapping, only need to retrieve for one since they'll all be joined
+                geometry = TRUE)%>%
+    select(variable, estimate, GEOID)%>%
+    #use spread to make the data horizontal (each row is one census tract)
+    spread(key = "variable", value= "estimate")
+  
+  # pull data for acs profiles
+  acs_profile<-get_acs(year = year, 
+                       variables = to_retrieve_profile,
+                       geography = "tract",
+                       state = "PA",
+                       county = "Allegheny")%>%
+    select(variable, estimate, GEOID)%>%
+    #use spread to make the data horizontal (each row is one census tract)
+    spread(key = "variable", value= "estimate")
+  
+  
+  # pull data for acs study columns
+  acs_study<-get_acs(year = year,
+                     variables = to_retrieve_study,
+                     geography = "tract",
+                     state = "PA",
+                     county = "Allegheny")%>%
+    select(variable, estimate, GEOID)%>%
+    #use spread to make the data horizontal (each row is one census tract)
+    spread(key = "variable", value= "estimate")
+  
+  # if the year is less than 2015, calculate unemployment rate
+  if(year<2015){
+    acs_study$male_employment_rate<-acs_study$male_employed/acs_study$male_pop_20_64
+  }
+  
+  # join columns together
+  acs_data<-acs5%>%
+    full_join(acs_profile)%>%
+    full_join(acs_study)%>%
+    # calculate columns we need
+    # percentage of households that are single male/single female
+    mutate(pct_single_female_hh =single_female_hh/total_households,
+           pct_single_male_hh = single_male_hh/total_households,
+           pct_bachelors = over_25_bachelors/over_25_pop)%>%
+    # make data rowwise to take the horizontal mean to calculate disadvantage index
+    rowwise()%>%
+    #calculate disadvantage index
+    mutate(disadvantage_index = mean(all_poverty,
+                                     pct_single_female_hh,
+                                     1-male_employment_rate,
+                                     1-pct_bachelors))
+}
 
+# apply function to years, using lapply will return a list, where each item is the dataframe for a year
 
-###### test / verification code below here:
+indices_list<-lapply(years,retrieve_census_data)
+names(indices_list)<-years
+
+#write each year to excel csv file
+for(year in years){
+  st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,".gpkg"))
+  
+}
+
+# add the years as names for indices list
+test<-indices_list[1]
+names(test)
+test2<-test[[1]]
+
+#####################################################################################################################
+########################################## test / verification code below here:######################################
+#####################################################################################################################
 
 #verify that B01001B_001 and B02001_003 (which should both be black population) are the same
 # verify_pop_black<-get_acs(year=2018,
@@ -90,10 +176,10 @@ to_retrieve_study_15_18<-c(
 #                                       "black2" = "B02001_003"),
 #                           geography="tract",
 #                           state="PA",
-#                           county="Allegheny")%>%
+#                           county="Allegheny",geometry=TRUE)%>%
 #   #limit only to east liberty tracts
 #   filter(GEOID%in%c(42003111300,42003111500))
-# 
+
 # #verify that B25008_002 and B25010_002 (owner-occupied units) are both the same 
 # verify_owner_occupied<-get_acs(year=2018,
 #                           variables=c("owner1" = "B25008_002",
