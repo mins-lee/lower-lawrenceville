@@ -169,6 +169,8 @@ for(year in years){
   
 }
 
+#save indices to r file
+save(indices_list,file = "index files/indices.RData")
 # add the years as names for indices list
 test<-indices_list[1]
 names(test)
