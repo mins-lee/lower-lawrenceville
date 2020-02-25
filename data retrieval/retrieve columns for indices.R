@@ -21,6 +21,7 @@ year_indices<-list()
 #create a directory to store index files
 setwd("data retrieval")
 dir.create("index files")
+
 #create a named list of columns that can be pulled for all years from acs5
 to_retrieve_acs5<-c(
   # population in occupied housing units
@@ -172,6 +173,14 @@ for(year in years){
 test<-indices_list[1]
 names(test)
 test2<-test[[1]]
+
+
+
+
+
+
+
+
 
 #####################################################################################################################
 ########################################## test / verification code below here:######################################
