@@ -182,13 +182,6 @@ retrieve_census_data<-function(year){
 indices_list<-lapply(years,retrieve_census_data)
 names(indices_list)<-years
 
-#figure out if east liberty is gentrification eligible
-for(year in years){
-  temp<-indices_list[[paste0(year)]]%>%
-    filter(grepl("1113|1115",GEOID))
-  print(year)
-  print(temp[,c("GEOID","pct_cbsa_income","pct_cbsa_value")])
-}
 #write each year to excel csv file
 for(year in years){
   st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,export_format))
@@ -201,10 +194,6 @@ for(year in years){
 
 #save indices to r file
 save(indices_list,file = "index files/indices.RData")
-# add the years as names for indices list
-test<-indices_list[1]
-names(test)
-test2<-test[[1]]
 
 
 
@@ -251,13 +240,27 @@ test2<-test[[1]]
 #                                      county="Allegheny"))%>%
 #   #limit only to east liberty tracts
 #   filter(GEOID%in%c(42003111300,42003111500))
-?load_variables
-variables<-load_variables(year=2010,dataset="acs5")%>%
-  filter(grepl("B25077",name))
-
-
-east_lib2010<-indices_list[["2010"]]%>%
-  filter(grepl("1113|1115",GEOID))
-
-east_lib2018<-indices_list[["2018"]]%>%
-  filter(grepl("1113|1115",GEOID))
+# ?load_variables
+# variables<-load_variables(year=2010,dataset="acs5")%>%
+#   filter(grepl("B25077",name))
+# 
+# 
+# east_lib2010<-indices_list[["2010"]]%>%
+#   filter(grepl("1113|1115",GEOID))
+# 
+# east_lib2018<-indices_list[["2018"]]%>%
+#   filter(grepl("1113|1115",GEOID))
+# 
+# 
+# #figure out if east liberty is gentrification eligible
+# for(year in years){
+#   temp<-indices_list[[paste0(year)]]%>%
+#     filter(grepl("1113|1115",GEOID))
+#   print(year)
+#   print(temp[,c("GEOID","pct_cbsa_income","pct_cbsa_value")])
+# }
+# 
+# # add the years as names for indices list
+# test<-indices_list[1]
+# names(test)
+# test2<-test[[1]]
