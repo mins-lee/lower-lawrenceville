@@ -1,0 +1,36 @@
+---
+title: "vizualise census tract indices"
+author: "Devraj Kori"
+date: "2/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(leaflet)
+library(sf)
+#set the working directory to "index files"", where the RData file containing indices should be located, if its not already the working directory
+if(!grepl("index files$",getwd())){
+  setwd("index_files")
+}
+
+load("indices.RData")
+```
+
+
+```{r visualize_indices,echo=FALSE,include=FALSE}
+leaflet()
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

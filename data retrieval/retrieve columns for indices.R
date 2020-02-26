@@ -55,7 +55,9 @@ to_retrieve_acs5<-c(
   # male population
   "male_pop" = "B01001_002",
   # female population
-  "female_pop" = "B01001_026"
+  "female_pop" = "B01001_026",
+  # median home value
+  "median_home_value" = "B25077_001"
   )
 
 # define variables to retrieve from acs profile
@@ -92,7 +94,7 @@ to_retrieve_study_15_18<-c(
   # population over 25 to 64 with bachelors degree
   "over_25_bachelors" = "S2301_C01_035")
 
-year<-2010
+#year<-2010
 #create a function that takes a year as an argument, and returns a single dataframe at the tract level with all of the colums
 retrieve_census_data<-function(year){
   # set the list of study columns to retrieve based on the year
@@ -140,6 +142,17 @@ retrieve_census_data<-function(year){
     acs_study$male_employment_rate<-acs_study$male_employed/acs_study$male_pop_20_64
   }
   
+  #pull cbsa level median income (for gentrification eligibility)
+  cbsa_data<-get_acs(year=year,geography="cbsa",
+                       variables = c("cbsa_income" = "B19013_001",
+                                     "cbsa_home_value" = "B25077_001"))%>%
+    #only limit to Pittsburgh cbsa
+    filter(grepl("pittsburgh",NAME,ignore.case=TRUE))%>%
+    # get rid of moe column so spread will work
+    select(-moe)%>%
+    #make data wide
+    spread(key="variable",value="estimate")
+
   # join columns together
   acs_data<-acs5%>%
     full_join(acs_profile)%>%
@@ -152,22 +165,39 @@ retrieve_census_data<-function(year){
     # make data rowwise to take the horizontal mean to calculate disadvantage index
     rowwise()%>%
     #calculate disadvantage index
-    mutate(disadvantage_index = mean(all_poverty,
+    mutate(disadvantage_index = mean(c(all_poverty_pct,
                                      pct_single_female_hh,
                                      1-male_employment_rate,
-                                     1-pct_bachelors))
+                                     1-pct_bachelors,na.rm=TRUE)))%>%
+    #add in cbsa level variables
+    mutate(cbsa_income=cbsa_data$cbsa_income,
+           cbsa_home_value=cbsa_data$cbsa_home_value)%>%
+    #calculate income and home values as percentage of cbsa, to determine gentrification "elgibility"
+    mutate(pct_cbsa_income = median_income/cbsa_income,
+           pct_cbsa_value = median_home_value/cbsa_home_value)
+  
 }
-
 # apply function to years, using lapply will return a list, where each item is the dataframe for a year
-
+  # this is equivalent to a for loop over all years
 indices_list<-lapply(years,retrieve_census_data)
 names(indices_list)<-years
 
+#figure out if east liberty is gentrification eligible
+for(year in years){
+  temp<-indices_list[[paste0(year)]]%>%
+    filter(grepl("1113|1115",GEOID))
+  print(year)
+  print(temp[,c("GEOID","pct_cbsa_income","pct_cbsa_value")])
+}
 #write each year to excel csv file
 for(year in years){
   st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,export_format))
   
 }
+
+
+
+
 
 #save indices to r file
 save(indices_list,file = "index files/indices.RData")
@@ -221,4 +251,13 @@ test2<-test[[1]]
 #                                      county="Allegheny"))%>%
 #   #limit only to east liberty tracts
 #   filter(GEOID%in%c(42003111300,42003111500))
+?load_variables
+variables<-load_variables(year=2010,dataset="acs5")%>%
+  filter(grepl("B25077",name))
 
+
+east_lib2010<-indices_list[["2010"]]%>%
+  filter(grepl("1113|1115",GEOID))
+
+east_lib2018<-indices_list[["2018"]]%>%
+  filter(grepl("1113|1115",GEOID))
