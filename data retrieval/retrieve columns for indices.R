@@ -1,9 +1,10 @@
+rm(list=ls())
+
 library(tidycensus)
 library(dplyr)
 library(tidyr)
 library(sf)
 library(openxlsx)
-
 #this code references the excel file Meredith made breaking down the different columns available by year
 
 #goal: create a separate dataframe for each year that contains all of the columns needed
@@ -13,12 +14,13 @@ years<-2010:2018
 # specify the geographic format for exporting the files: 
 # see "Guessing a Driver for Output" at this link for possible formats: 
   #https://cran.r-project.org/web/packages/sf/vignettes/sf2.html
-export_format<-".gpkg"
+export_format<-".shp"
 
 
 #create a list to store the dataframes
 year_indices<-list()
 #create a directory to store index files
+
 setwd("data retrieval")
 dir.create("index files")
 
@@ -75,8 +77,7 @@ to_retrieve_study_10_14<-c(
   "single_male_hh" = "S1101_C03_001",
   "single_female_hh" = "S1101_C04_001",
   #males participating in labor force (for 2013 and 2014, it specifies ages 20 to 64, unclear on 2009-2012)
-  "male_pop_20_64" = "S2301_C01_020",
-  "male_employed" = "S2301_C03_020",
+  "male_employment_rate" = "S2301_C03_020",
   # population over 25 to 64
   "over_25_pop" = "S2301_C01_025",
   # population over 25 to 64 with bachelors degree
@@ -137,10 +138,10 @@ retrieve_census_data<-function(year){
     #use spread to make the data horizontal (each row is one census tract)
     spread(key = "variable", value= "estimate")
   
-  # if the year is less than 2015, calculate unemployment rate
-  if(year<2015){
-    acs_study$male_employment_rate<-acs_study$male_employed/acs_study$male_pop_20_64
-  }
+  # # if the year is less than 2015, calculate unemployment rate
+  # if(year<2015){
+  #   acs_study$male_employment_rate<-acs_study$male_employed/acs_study$male_pop_20_64
+  # }
   
   #pull cbsa level median income (for gentrification eligibility)
   cbsa_data<-get_acs(year=year,geography="cbsa",
@@ -165,16 +166,20 @@ retrieve_census_data<-function(year){
     # make data rowwise to take the horizontal mean to calculate disadvantage index
     rowwise()%>%
     #calculate disadvantage index
-    mutate(disadvantage_index = mean(c(all_poverty_pct,
+    mutate(disadvantage_index = mean(c(all_poverty_pct/100,
                                      pct_single_female_hh,
-                                     1-male_employment_rate,
+                                     1-(male_employment_rate/100),
                                      1-pct_bachelors,na.rm=TRUE)))%>%
     #add in cbsa level variables
     mutate(cbsa_income=cbsa_data$cbsa_income,
            cbsa_home_value=cbsa_data$cbsa_home_value)%>%
     #calculate income and home values as percentage of cbsa, to determine gentrification "elgibility"
     mutate(pct_cbsa_income = median_income/cbsa_income,
-           pct_cbsa_value = median_home_value/cbsa_home_value)
+           pct_cbsa_value = median_home_value/cbsa_home_value)%>%
+    #add a column indicating the year
+    mutate(year=year)%>%
+    #remove rowwise with ungroup
+    ungroup()
   
 }
 # apply function to years, using lapply will return a list, where each item is the dataframe for a year
@@ -182,18 +187,18 @@ retrieve_census_data<-function(year){
 indices_list<-lapply(years,retrieve_census_data)
 names(indices_list)<-years
 
-#write each year to excel csv file
-for(year in years){
-  st_write(indices_list[[paste0(year)]],paste0("index files/indices_",year,export_format))
-  
-}
-
-
-
-
-
 #save indices to r file
 save(indices_list,file = "index files/indices.RData")
+
+#bind all files to one dataset, export as shapefile
+#first, create directory for shapefiles
+dir.create("index files/shapefile")
+
+st_write(obj = do.call(rbind,indices_list), # bind all years into one dataset
+         dsn = paste0("index files/shapefile/all_year_indices",export_format))
+
+
+
 
 
 

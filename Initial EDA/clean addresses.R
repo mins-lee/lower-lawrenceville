@@ -291,59 +291,11 @@ for(client in dat_cleaned5$CLIENT_ID){
 
 }
 
-#find remaining duplicates: same client and moveindate, or same client and primary address
-same_client_movein<-dat_cleaned5%>%
-  group_by(CLIENT_ID,MOVEINDATE)%>%
-  summarise(count=n())%>%
-  filter(count>=2)%>%
-  select(-count)%>%
-  left_join(dat_cleaned5)
+#save as rdata file
+save(dat_cleaned5,file="all data clean 29-feb-2020.Rdata")
 
-write_csv(same_client_movein,"same client and moveindate.csv")
-
-same_client_primary<-dat_cleaned5%>%
-  group_by(CLIENT_ID,PRIMARYSTREET)%>%
-  summarise(count=n())%>%
-  filter(count>=2)%>%
-  select(-count)%>%
-  left_join(dat_cleaned5)
-write_csv(same_client_primary,"same client and primary address.csv")
-test<-dat_cleaned5%>%
-  filter(CLIENT_ID%in%same_client_primary$CLIENT_ID)%>%
-  arrange(CLIENT_ID,MOVEINDATE)
-
-test2<-dat_cleaned%>%
-  filter(CLIENT_ID==3276631)
-save(dat_cleaned5,file="cleaned data .RData")
-load("cleaned data.RData")
-
-unique_addr<-dat_cleaned3%>%
-  group_by(PRIMARYSTREET)%>%
-  summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
-
-unique_15206_addr<-dat_cleaned3%>%
-  filter(ZIP==15206)%>%
-  group_by(PRIMARYSTREET)%>%
-  summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
-
-write_csv(unique_addr,"unique cleaned addr.csv")
-write_csv(unique_15206_addr,"unique cleaned addresses - 15206.csv")
-write_csv(dat_cleaned3,"cleaned data.csv")
-
-
-east_lib<-dat_cleaned%>%filter(ZIP==15206)
-length(unique(east_lib$PRIMARYSTREET))
-
-#for now: heads of house
-unique(dat_cleaned$RELATIONSHIP)
-#find rows from full dataset associated only with individuals that at some point lived in east liberty
-east_lib_sometime<-dat_cleaned%>%
-  filter(CLIENT_ID%in%east_lib$CLIENT_ID)
-length(unique(east_lib_sometime$PRIMARYSTREET))
-
-
-length(unique(dat_cleaned$CLIENT_ID))
-length(unique(east_lib))
+#save as csv file
+write_csv(dat_cleaned5,"all data clean 29-feb-2020.csv")
 
 ########################################################################################################
 ####################################### Test Code below here ###########################################
@@ -371,14 +323,67 @@ length(unique(east_lib))
 # 
 # length(unique(dat$PRIMARYSTREET))
 # length(unique(dat_cleaned$PRIMARYSTREET))
-test<-dat[grep("Bridgeview",dat$SECONDARYSTREET,ignore.case=TRUE),]
-relationship_breakdown<-dat_cleaned%>%
-  group_by(RELATIONSHIP)%>%
-  summarise(count=length(unique(CLIENT_ID)))
-
-write_csv(relationship_breakdown,"number of clients per householder status.csv")
-
-
+# test<-dat[grep("Bridgeview",dat$SECONDARYSTREET,ignore.case=TRUE),]
+# relationship_breakdown<-dat_cleaned%>%
+#   group_by(RELATIONSHIP)%>%
+#   summarise(count=length(unique(CLIENT_ID)))
+# 
+# write_csv(relationship_breakdown,"number of clients per householder status.csv")
+# 
+# 
+# #find remaining duplicates: same client and moveindate, or same client and primary address
+# same_client_movein<-dat_cleaned5%>%
+#   group_by(CLIENT_ID,MOVEINDATE)%>%
+#   summarise(count=n())%>%
+#   filter(count>=2)%>%
+#   select(-count)%>%
+#   left_join(dat_cleaned5)
+# 
+# write_csv(same_client_movein,"same client and moveindate.csv")
+# 
+# same_client_primary<-dat_cleaned5%>%
+#   group_by(CLIENT_ID,PRIMARYSTREET)%>%
+#   summarise(count=n())%>%
+#   filter(count>=2)%>%
+#   select(-count)%>%
+#   left_join(dat_cleaned5)
+# write_csv(same_client_primary,"same client and primary address.csv")
+# test<-dat_cleaned5%>%
+#   filter(CLIENT_ID%in%same_client_primary$CLIENT_ID)%>%
+#   arrange(CLIENT_ID,MOVEINDATE)
+# 
+# test2<-dat_cleaned%>%
+#   filter(CLIENT_ID==3276631)
+# save(dat_cleaned5,file="cleaned data .RData")
+# load("cleaned data.RData")
+# 
+# unique_addr<-dat_cleaned3%>%
+#   group_by(PRIMARYSTREET)%>%
+#   summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
+# 
+# unique_15206_addr<-dat_cleaned3%>%
+#   filter(ZIP==15206)%>%
+#   group_by(PRIMARYSTREET)%>%
+#   summarise(units=paste(unique(SECONDARYSTREET),collapse=", "))
+# 
+# write_csv(unique_addr,"unique cleaned addr.csv")
+# write_csv(unique_15206_addr,"unique cleaned addresses - 15206.csv")
+# write_csv(dat_cleaned3,"cleaned data.csv")
+# 
+# 
+# east_lib<-dat_cleaned%>%filter(ZIP==15206)
+# length(unique(east_lib$PRIMARYSTREET))
+# 
+# #for now: heads of house
+# unique(dat_cleaned$RELATIONSHIP)
+# #find rows from full dataset associated only with individuals that at some point lived in east liberty
+# east_lib_sometime<-dat_cleaned%>%
+#   filter(CLIENT_ID%in%east_lib$CLIENT_ID)
+# length(unique(east_lib_sometime$PRIMARYSTREET))
+# 
+# 
+# length(unique(dat_cleaned$CLIENT_ID))
+# length(unique(east_lib))
 
 ############################ OLD CODE BEFORE HERE ###################################
 ##  Steps:
@@ -396,4 +401,6 @@ write_csv(relationship_breakdown,"number of clients per householder status.csv")
 #   select(-MOVEOUTDATE)%>%
 #   unique()%>%
 #   left_join(no_null_moveouts,by=c("CLIENT_ID","MOVEINDATE","PRIMARYSTREET"))
+
+
 

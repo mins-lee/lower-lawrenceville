@@ -10,6 +10,7 @@ library(dplyr)
 library(tidyr)
 library(leaflet)
 library(sf)
+library(ggplot2)
 #set the working directory to "index files"", where the RData file containing indices should be located, if its not already the working directory
 if(!grepl("index files$",getwd())){
   setwd("index_files")
@@ -19,18 +20,62 @@ load("indices.RData")
 ```
 
 
-```{r visualize_indices,echo=FALSE,include=FALSE}
-leaflet()
+```{r visualize_indices,echo=FALSE,results="asis"}
+pal <- colorNumeric(palette = "RdYlGn", domain = c(0,1),reverse=TRUE)
+
+years<-2010:2018
+
+#create a function that returns a leaflet chart
+plot_disadvantage<-function(year){
+  temp<-indices_list[[paste0(year)]]
+
+leaflet()%>%
+  addProviderTiles(provider = "CartoDB.Positron") %>%
+  addPolygons(data=st_as_sf(temp%>%ungroup()),
+              stroke = FALSE,
+              smoothFactor = 0,
+              fillOpacity = 0.7,
+              color = ~pal(`disadvantage_index`))%>%
+  addLegend(position="bottomleft",
+            pal = pal,
+            values = temp$disadvantage_index)%>%
+  setView(lng=-79.9257961,lat=40.4649894,zoom=13)
+}
+maps<-lapply(years,plot_disadvantage)
 
 
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+```{r disadvantage_distribution, echo=FALSE,results='asis'}
+#read in neighborhoods to outline east liberty
+neighborhoods<-read_sf("Neighborhoods/Neighborhoods_.shx")
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+#limit neighborhoods to just east liberty
+east_liberty_poly<-neighborhoods%>%
+  filter(grepl("east liberty",hood,ignore.case=TRUE))
+
+# 2010
+# maps[[1]]
+# 2011
+# maps[[2]]
+2012
+maps[[3]]%>%
+  addPolygons(data=east_liberty_poly,fill=FALSE)
+# 2013
+# maps[[4]]
+# 2014
+# maps[[5]]
+# 2015
+# maps[[6]]
+# 2016
+# maps[[7]]
+# 2017
+# maps[[8]]
+2018
+maps[[9]]%>%
+  addPolygons(data=east_liberty_poly,fill=FALSE)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
