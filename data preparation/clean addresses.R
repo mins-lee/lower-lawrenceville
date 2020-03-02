@@ -291,6 +291,15 @@ for(client in dat_cleaned5$CLIENT_ID){
 
 }
 
+#find addresses where moveout date is less than movein date
+negative_tenure<-dat_cleaned5%>%
+  mutate(tenure=MOVEOUTDATE-MOVEINDATE)%>%
+  filter(tenure<=0)
+
+#find addresses corresponding to individuals with negative tenure
+negative_tenure_clients<-dat_cleaned5%>%
+  filter(CLIENT_ID%in% negative_tenure$CLIENT_ID)
+
 #save as rdata file
 save(dat_cleaned5,file="all data clean 29-feb-2020.Rdata")
 
