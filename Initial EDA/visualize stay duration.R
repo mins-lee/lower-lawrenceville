@@ -30,7 +30,9 @@ east_lib_any5<-east_lib_any4%>%
                              MOVEINDATE)%>%as.Date(origin=),
          test=as.Date("Jan/01/1970",format="%h/%d/%Y"))%>%
   #calculate duration of stay
-  mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE))
+  mutate(stay_duration=as.numeric(MOVEOUTDATE-MOVEINDATE))%>%
+  #create an east liberty flag
+  mutate(east_lib_address=(hood=="East Liberty"))
 
 
 for_median<-east_lib_any5%>%
