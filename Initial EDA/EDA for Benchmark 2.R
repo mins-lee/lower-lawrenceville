@@ -226,7 +226,15 @@ make_moves<-function(client){
 move_list<-lapply(clients,make_moves)
 
 #rbind move_list
-moves<-do.call(rbind,move_list)
+moves<-do.call(rbind,move_list)%>%
+  #create a flag for if the move is into east lib, out of east lib, within east lib, or outside east liberty
+  mutate(move_pattern = case_when(
+    start_east_lib==TRUE & end_east_lib==TRUE ~ "Moved within E.L.",
+    start_east_lib==FALSE & end_east_lib==TRUE ~ "Moved to E.L.",
+    start_east_lib==TRUE & end_east_lib==FALSE ~ "Left E.L.",
+    start_east_lib==FALSE & end_east_lib==FALSE ~ "Outside E.L."
+  ))
+
 
 #can't change name of geometry column, so geometry is start address, geometry.1 is end address
 #use mapply to calculate pairwise distances, based on this: https://gis.stackexchange.com/questions/249762/calculating-distances-between-two-geometry-columns-using-r
@@ -235,10 +243,33 @@ distances<-mapply(function(x,y) st_distance(x,y)%>%units::set_units(km),
                   st_transform(moves$geometry,"+init=epsg:32718"),
                   st_transform(moves$geometry.1,"+init=epsg:32718"))
 mean(distances)
-leaflet()%>%
-  addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
-  addCircleMarkers(data=moves[1,]$geometry,
-                   stroke=FALSE)%>%
-  addCircleMarkers(data=moves[1,]$geometry.1,
-                   stroke=FALSE)
-?st_transform
+
+
+
+
+#scatterplot of distances against dates
+data.frame(`Distance to new address (km)`=distances/1000,
+           `Move-out Date`=moves$moveout_date,
+           `Move Pattern` = moves$move_pattern,
+           check.names = FALSE)%>%
+  #limit just to 2003 onward
+  filter(`Move-out Date`>=as.Date("01-01-2003",format="%m-%d-%Y"))%>%
+  #remove moves that are to and from addresses outside east liberty
+  filter(`Move Pattern`!="Outside E.L.")%>%
+  #filter(`Move Pattern`!="Moved to E.L.")%>%
+  ggplot(aes(x=`Move-out Date`,y=`Distance to new address (km)`))+
+  geom_point(aes(color=`Move Pattern`),alpha=.5)+
+  geom_smooth(method=lm)+
+  theme(legend.position="bottom",
+        legend.title=element_blank())+
+  scale_y_continuous(limits=c(0,17))+
+  scale_color_brewer(palette="Dark2",direction=-1)+
+  labs(title="Move distances for HVRs to/from East Liberty")
+
+ggsave("Initial EDA/Scatter of Move Distance.png")
+# leaflet()%>%
+#   addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
+#   addCircleMarkers(data=moves[1,]$geometry,
+#                    stroke=FALSE)%>%
+#   addCircleMarkers(data=moves[1,]$geometry.1,
+#                    stroke=FALSE)

@@ -21,8 +21,7 @@ export_format<-".shp"
 year_indices<-list()
 #create a directory to store index files
 
-setwd("data retrieval")
-dir.create("index files")
+dir.create("data retrieval/index files")
 
 #create a named list of columns that can be pulled for all years from acs5
 to_retrieve_acs5<-c(
@@ -188,14 +187,14 @@ indices_list<-lapply(years,retrieve_census_data)
 names(indices_list)<-years
 
 #save indices to r file
-save(indices_list,file = "index files/indices.RData")
+save(indices_list,file = "data retrieval/index files/indices.RData")
 
 #bind all files to one dataset, export as shapefile
 #first, create directory for shapefiles
-dir.create("index files/shapefile")
+dir.create("data retrieval/index files/shapefile")
 
 st_write(obj = do.call(rbind,indices_list), # bind all years into one dataset
-         dsn = paste0("index files/shapefile/all_year_indices",export_format))
+         dsn = paste0("data retrieval/index files/shapefile/all_year_indices",export_format))
 
 
 
