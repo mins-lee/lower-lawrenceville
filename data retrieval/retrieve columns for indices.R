@@ -169,7 +169,7 @@ retrieve_census_data<-function(year){
     mutate(disadvantage_index = mean(c(all_poverty_pct/100,
                                      pct_single_female_hh,
                                      1-(male_employment_rate/100),
-                                     1-pct_bachelors,na.rm=TRUE)))%>%
+                                     1-pct_bachelors),na.rm=TRUE))%>%
     #add in cbsa level variables
     mutate(cbsa_income=cbsa_data$cbsa_income,
            cbsa_home_value=cbsa_data$cbsa_home_value)%>%
@@ -196,7 +196,6 @@ dir.create("index files/shapefile")
 
 st_write(obj = do.call(rbind,indices_list), # bind all years into one dataset
          dsn = paste0("index files/shapefile/all_year_indices",export_format))
-
 
 
 

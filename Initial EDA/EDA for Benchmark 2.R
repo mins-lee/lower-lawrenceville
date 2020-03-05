@@ -8,7 +8,7 @@ library(tidycensus)
 library(ggplot2)
 library(tidyr)
 library(scales)
-
+library(units)
 #load in overall cleaned dataset
 load("data preparation/all data clean 29-feb-2020.Rdata")
 
@@ -158,3 +158,87 @@ east_lib_movements%>%
                      minor_breaks=NULL)+
   #scale_fill_brewer(palette="Dark2")+
   theme_minimal()
+
+
+###########################################################################################################################  
+############################################ THIRD BENCHMARK: DISTANCE OF MOVES #################################
+###########################################################################################################################  
+## procedure: create a dataframe of moves:
+##  Columns:
+##    1.) Client_ID
+##    2.) start_geo
+##    3.) end_geo
+##    4.) moveout date
+##    5.) start_east_lib (bool)
+##    6.) end_east_lib (bool)
+
+clients<-east_lib_any2$CLIENT_ID%>%unique
+
+#create a function that takes a client as an argument, and returns a dataframe of moves
+make_moves<-function(client){
+  # create a blank result frame to store results in
+  # pull from east_lib_any2 to get the types right
+  result_frame=data.frame(client_id=client_frame[1,]$CLIENT_ID,
+                          start_geo=client_frame[1,]$geometry,
+                          end_geo=client_frame[1,]$geometry,
+                          moveout_date=client_frame[1,]$MOVEOUTDATE,
+                          start_east_lib=TRUE,
+                          end_east_lib=TRUE)[0,]
+  # limit dataset to just given client
+  client_frame<-east_lib_any2%>%
+    filter(CLIENT_ID==client)%>%
+    #sort by moveindate
+    arrange(MOVEINDATE)
+  if(nrow(client_frame)>1){
+    #go through client_frame, grab needed info
+    for(i in 1:(nrow(client_frame)-1)){
+      #retrieve start and end addresses
+      start_geo=client_frame[i,]$geometry
+      end_geo=client_frame[i+1,]$geometry
+      #retrieve moveoutdate
+      moveout_date=client_frame[i,]$MOVEOUTDATE
+      #retrieve bools for east lib address
+      start_east_lib = client_frame[i,]$east_lib_address
+      end_east_lib = client_frame[i+1,]$east_lib_address
+      
+      #store results in frame
+      result_row=data.frame(client_id=client,
+                            start_geo=start_geo,
+                            end_geo=end_geo,
+                            moveout_date=moveout_date,
+                            start_east_lib=start_east_lib,
+                            end_east_lib=end_east_lib)
+      
+      #add result row to result frame
+      #only do so if primary address is different for start and end
+      if(client_frame[i,]$PRIMARYSTREET!=client_frame[i+1,]$PRIMARYSTREET){
+        result_frame = rbind(result_frame,result_row)
+      }
+
+      
+    }
+    
+  }
+  result_frame
+  
+}
+#apply function over clients
+move_list<-lapply(clients,make_moves)
+
+#rbind move_list
+moves<-do.call(rbind,move_list)
+
+#can't change name of geometry column, so geometry is start address, geometry.1 is end address
+#use mapply to calculate pairwise distances, based on this: https://gis.stackexchange.com/questions/249762/calculating-distances-between-two-geometry-columns-using-r
+# need to change coordinate system to not 4326 to get meters instead of degrees
+distances<-mapply(function(x,y) st_distance(x,y)%>%units::set_units(km),
+                  st_transform(moves$geometry,"+init=epsg:32718"),
+                  st_transform(moves$geometry.1,"+init=epsg:32718"))
+mean(distances)
+leaflet()%>%
+  addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
+  addCircleMarkers(data=moves[1,]$geometry,
+                   stroke=FALSE)%>%
+  addCircleMarkers(data=moves[1,]$geometry.1,
+                   stroke=FALSE)
+?st_transform
