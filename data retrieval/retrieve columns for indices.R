@@ -5,6 +5,7 @@ library(dplyr)
 library(tidyr)
 library(sf)
 library(openxlsx)
+
 #this code references the excel file Meredith made breaking down the different columns available by year
 
 #goal: create a separate dataframe for each year that contains all of the columns needed
@@ -181,6 +182,10 @@ retrieve_census_data<-function(year){
     ungroup()
   
 }
+
+
+
+
 # apply function to years, using lapply will return a list, where each item is the dataframe for a year
   # this is equivalent to a for loop over all years
 indices_list<-lapply(years,retrieve_census_data)
@@ -267,3 +272,4 @@ st_write(obj = do.call(rbind,indices_list), # bind all years into one dataset
 # test<-indices_list[1]
 # names(test)
 # test2<-test[[1]]
+
