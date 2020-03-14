@@ -1,0 +1,112 @@
+---
+title: "event study"
+author: "Devraj Kori"
+date: "3/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggmap)
+library(rgdal)
+library(tidycensus)
+
+```
+define parameters for event study
+```{r set_parameters}
+#define distance around each new apartment that "treatment" will be assigned to (in meters)
+treatment_distance<-500%>%units::set_units(m)
+
+#define binning, the maximum number of years before/after an opening to include
+years_prior<-(4)
+years_after<-(4)
+```
+
+
+```{r load_datasets}
+#read in new apartment complex data
+new_apartments<-read_csv("New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
+  #remove NAS
+  filter(!is.na(lon))%>%
+  #make it sf object
+  st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
+
+#move the directory up a level (outside "quantitative analysis into main folder)
+setwd("..")
+load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
+load("data preparation/all data clean 29-feb-2020.RData",verbose=TRUE)
+
+
+#load pittsburgh neighborhood shapefile
+neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
+  select(hood,geometry)
+
+#join dat_cleaned5 with 
+geocoded_data<-dat_cleaned5%>%
+  #remove NA move-outs, since this version is only looking at displacements
+  filter(!is.na(MOVEOUTDATE))%>%
+  #create the for_geocode_addr column
+  mutate(for_geocode_addr = paste(PRIMARYSTREET,ZIP,sep = ", "))%>%
+  left_join(correctly_coded%>%
+              select(for_geocode_addr))%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP,geometry)%>%
+  #make into sf object for join
+  st_as_sf(crs = "+init=epsg:4326")%>%
+  #join with neighborhoods
+  st_join(neighborhoods,join=st_within,left=TRUE)%>%
+  unique()
+```
+
+```{r calculate_apartment_address_distances}
+#calculate distances between new apartments and geocoded data
+distances<-st_distance(new_apartments$geometry,
+                       geocoded_data$geometry)
+
+#limit to just addresses that fall within specified range of each new apartment
+in_range<-which(distances<=treatment_distance,arr.ind=TRUE)%>%as.data.frame
+
+```
+
+```{r construct_event_frame}
+i<-1
+#iterate through new apartments
+for(i in 1:nrow(new_apartments)){
+  #define apartment date
+  apartment_year<-new_apartments[i,]$Opened%>%as.numeric()
+  
+  #define range of years based on chosen years before/after
+  year_range<-(apartment_year-years_prior):(apartment_year+years_after)
+  
+  #retrieve address indices in range
+  voucher_indices_in_range<-in_range[in_range$row==i,]$col
+  for(year in year_range){
+      #limit geocoded data to just rows within range of new apartment
+    rows_in_range<-geocoded_data[voucher_indices_in_range,]%>%
+      #add a moveout year column
+      mutate(moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+      #add a column for Tau: the difference between the apartment year and the given year
+      mutate(Tau=year-apartment_year)%>%
+      #add a dummy indicating whether or not they moved out in the given year
+      mutate(moved_out=(year==moveout_year))
+    # if year is the first year in year range, create a new year_result frame, else rbind
+    if(year==year_range[1]){
+      year_result<-rows_in_range
+    }
+    else{
+      year_result<-rbind(year_result,rows_in_range)
+    }
+  }
+  # if i is the first apartment, create a new frame called "for_event_study", else rbind
+  if(i==1){
+    for_event_study<-year_result
+  }
+  else{
+    for_event_study<-rbind(for_event_study,year_result)
+  }
+
+}
+```
