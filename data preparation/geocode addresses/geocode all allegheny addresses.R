@@ -40,9 +40,11 @@ to_geocode<-dat_cleaned5%>%
 
 write_csv(to_geocode,"remaining addresses to geocode.csv")
 
+
+
 #iterate through geo batch numbers, bind results at each batch (that way, if it breaks partway through,
 # we at least have some geocoded addresses)
-for(i in 1:max(to_geocode$geo_batch)){
+for(i in 0:max(to_geocode$geo_batch)){
   temp<-mutate_geocode(to_geocode%>%
                          filter(geo_batch==i),
                        for_geocode_addr,
@@ -87,5 +89,19 @@ save(all_geocoded_addr,
      file="data preparation/geocode addresses/ all recipient addresses geocoded.Rdata")
 
 
+##################################### CODE TO GEOCODE MISSING BATCH 0 ########
 
-  
+#### original run missed batch 0, so geocode it and add it back in
+
+
+# missing_geocode<-mutate_geocode(to_geocode%>%
+#                                   filter(geo_batch==0),
+#                                 for_geocode_addr,
+#                                 override_limit=TRUE)
+# save(missing_geocode,file="data preparation/geocode addresses/missing batch 0 geocode.RData")
+# load("data preparation/geocode addresses/ all recipient addresses geocoded.Rdata")
+# 
+# #add in the missing batch to all_geocoded_addr
+# all_geocoded_addr<-rbind(missing_geocode,all_geocoded_addr)
+# save(all_geocoded_addr,file="data preparation/geocode addresses/ all recipient addresses geocoded.Rdata")
+
