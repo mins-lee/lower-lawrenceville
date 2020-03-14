@@ -6,10 +6,10 @@ library(stringr)
 #turn off scientific notation
 options(scipen=999)
 #store list of files
-setwd("initial eda")
-file_names<-list.files(pattern="*.txt")
+#setwd("initial eda")
+file_names<-list.files(path=paste0(getwd(),"/data preparation"),pattern="*.txt")
 #use lapply to read in each file (using the read_tsv function) and store them in a list
-data_list<-lapply(file_names,function(x) read_tsv(x))
+data_list<-lapply(file_names,function(x) read_tsv(paste0(getwd(),"/data preparation/",x)))
 
 #use do.call to rbind the three files
 dat<-do.call(rbind,data_list)
@@ -18,8 +18,7 @@ dat<-do.call(rbind,data_list)
 names(dat)[ncol(dat)]<-"ZIP"
 
 #export as csv file
-write_csv(dat,"HCV Data.csv",na="")
-
+write_csv(dat,"./data preparation/HCV Data.csv",na="")
 #####################################################################################################
 ############################################ Cleaning addresses######################################
 #####################################################################################################
@@ -301,10 +300,10 @@ negative_tenure_clients<-dat_cleaned5%>%
   filter(CLIENT_ID%in% negative_tenure$CLIENT_ID)
 
 #save as rdata file
-save(dat_cleaned5,file="all data clean 29-feb-2020.Rdata")
+save(dat_cleaned5,file="data preparation/all data clean 29-feb-2020.Rdata")
 
 #save as csv file
-write_csv(dat_cleaned5,"all data clean 29-feb-2020.csv")
+write_csv(dat_cleaned5,"data preparation/all data clean 29-feb-2020.csv")
 
 ########################################################################################################
 ####################################### Test Code below here ###########################################

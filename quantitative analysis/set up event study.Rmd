@@ -23,7 +23,7 @@ define parameters for event study
 treatment_distance<-500%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
-years_prior<-(6)
+years_prior<-(4)
 years_after<-(6)
 
 #set Tau to normalize around (Tau that is forced to be 0)

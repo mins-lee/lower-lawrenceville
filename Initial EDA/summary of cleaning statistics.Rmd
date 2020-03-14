@@ -1,0 +1,93 @@
+---
+title: "summary stats of data cleaning"
+author: "Devraj Kori"
+date: "3/14/2020"
+output:
+  pdf_document: default
+  html_document: default
+header-includes:
+    - \usepackage{caption}
+---
+\captionsetup[table]{labelformat=empty}
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(stringr)
+library(kableExtra)
+library(scales)
+```
+
+
+```{r load_original_and_cleaned}
+#set the working directory to the main git directory
+setwd("..")
+file_names<-list.files(path=paste0(getwd(),"/data preparation"),pattern="*.txt")
+#use lapply to read in each file (using the read_tsv function) and store them in a list
+data_list<-lapply(file_names,function(x) read_tsv(paste0(getwd(),"/data preparation/",x)))
+
+#use do.call to rbind the three files
+dat<-do.call(rbind,data_list)
+
+#load cleaned data
+load("data preparation/all data clean 29-feb-2020.Rdata")
+```
+
+
+```{r summary_stats, results="asis"}
+starting_addresses<-length(unique(dat[dat$RELATIONSHIP=="Head",]$PRIMARYSTREET))%>%comma()
+final_addresses<-length(unique(dat_cleaned5$PRIMARYSTREET))%>%comma()
+
+original_rows<-nrow(dat[dat$RELATIONSHIP=="Head",])%>%comma()
+final_rows<-nrow(dat_cleaned5)%>%comma()
+
+missing_moveout_original<-nrow(dat[dat$RELATIONSHIP=="Head" & is.na(dat$MOVEOUTDATE),])%>%comma()
+missing_moveout_final<-nrow(dat_cleaned5[is.na(dat_cleaned5$MOVEOUTDATE),])%>%comma()
+
+#put these into a kable table
+cleaning_summary<-data.frame(` `=c("Unique Physical Addresses:",
+                               "  Before Cleaning:",
+                               "  After Cleaning:",
+                               "Rows associated with heads of household:",
+                               "  Before Cleaning:",
+                               "  After Cleaning:",
+                               "Missing Move-out Dates:",
+                               "  Before Cleaning:",
+                               "  After Cleaning:"),
+                             `  `=c(" ",starting_addresses,final_addresses,
+                                    " ", original_rows, final_rows,
+                                    " ", missing_moveout_original,missing_moveout_final),
+                             check.names=FALSE)
+kable(cleaning_summary,format="latex",booktabs=TRUE,caption="Cleaning Summary Statistics")%>%
+  row_spec(c(1,4,7),bold=TRUE)
+```
+
+
+```{r summary_stats_race, results="asis"}
+#summarize by race
+by_race<-dat_cleaned5%>%
+  group_by(RACE)%>%
+  summarise(clients = n_distinct(CLIENT_ID),
+            rows = n())%>%
+  ungroup()%>%
+  mutate(clients=comma(clients),
+         rows=comma(rows))%>%
+  kable(format="latex",booktabs=TRUE,caption="Summary Statistics: Race")
+by_race
+
+```
+
+```{r summary_stats_gender, results="asis"}
+
+by_gender<-dat_cleaned5%>%
+  group_by(GENDER)%>%
+  summarise(clients = n_distinct(CLIENT_ID),
+            rows = n())%>%
+  ungroup()%>%
+  mutate(clients=comma(clients),
+         rows=comma(rows))%>%
+  kable(format="latex",booktabs=TRUE, caption="Summary Statistics: Gender")
+by_gender
+```
