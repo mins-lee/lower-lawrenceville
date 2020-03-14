@@ -14,6 +14,7 @@ library(leaflet)
 library(ggmap)
 library(rgdal)
 library(tidycensus)
+library(ggplot2)
 
 ```
 define parameters for event study
@@ -22,8 +23,12 @@ define parameters for event study
 treatment_distance<-500%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
-years_prior<-(4)
-years_after<-(4)
+years_prior<-(6)
+years_after<-(6)
+
+#set Tau to normalize around (Tau that is forced to be 0)
+zero_tau=(-1)
+
 ```
 
 
@@ -91,7 +96,8 @@ for(i in 1:nrow(new_apartments)){
       #add a column for Tau: the difference between the apartment year and the given year
       mutate(Tau=year-apartment_year)%>%
       #add a dummy indicating whether or not they moved out in the given year
-      mutate(moved_out=(year==moveout_year))
+      mutate(moved_out=(year==moveout_year))%>%
+      select(Tau,moved_out)
     # if year is the first year in year range, create a new year_result frame, else rbind
     if(year==year_range[1]){
       year_result<-rows_in_range
@@ -109,4 +115,22 @@ for(i in 1:nrow(new_apartments)){
   }
 
 }
+
+```
+
+```{r run_event_study}
+
+test_run<-lm(moved_out~Tau,for_event_study%>%mutate(Tau=as.factor(Tau)))
+summary(test_run)
+```
+
+```{r plot_test_run_coefficients}
+for_normalization<-test_run$coefficients[paste0("Tau",zero_tau)]
+
+#set variable to be subtracted from each value for normalization
+data.frame(coefs=test_run$coefficients-for_normalization,
+           tau=test_run$xlevels[[1]]%>%as.numeric())%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_line()
+
 ```
