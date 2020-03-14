@@ -61,7 +61,8 @@ for(i in 0:max(to_geocode$geo_batch)){
 save(geocode_results,file="data preparation/geocode addresses/geocoded remaining addresses.Rdata")
 
 #combine previously geocoded with geocode results
-all_geocoded_addr<-rbind(geocode_results,previously_geocoded)
+all_geocoded_addr<-rbind(geocode_results,previously_geocoded)%>%
+  unique()
 
 
 #download Allegheny county boundaries from ACS to identify addresses
@@ -102,6 +103,6 @@ save(all_geocoded_addr,
 # load("data preparation/geocode addresses/ all recipient addresses geocoded.Rdata")
 # 
 # #add in the missing batch to all_geocoded_addr
-# all_geocoded_addr<-rbind(missing_geocode,all_geocoded_addr)
+# geocode_results<-rbind(missing_geocode,geocode_results)
 # save(all_geocoded_addr,file="data preparation/geocode addresses/ all recipient addresses geocoded.Rdata")
 
