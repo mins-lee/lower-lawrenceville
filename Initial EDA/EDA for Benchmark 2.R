@@ -267,6 +267,29 @@ data.frame(`Distance to new address (km)`=distances/1000,
   labs(title="Move distances for HVRs to/from East Liberty")
 
 ggsave("Initial EDA/Scatter of Move Distance.png")
+
+data.frame(`Distance to new address (km)`=distances/1000,
+           `Move-out Date`=moves$moveout_date,
+           `Move Pattern` = moves$move_pattern,
+           check.names = FALSE)%>%
+  #limit just to 2003 onward
+  filter(`Move-out Date`>=as.Date("01-01-2003",format="%m-%d-%Y"))%>%
+  #remove moves that are to and from addresses outside east liberty
+  filter(`Move Pattern`=="Left E.L.")%>%
+  #filter(`Move Pattern`!="Moved to E.L.")%>%
+  ggplot(aes(x=`Move-out Date`,y=`Distance to new address (km)`))+
+  geom_point(aes(color=`Move Pattern`),alpha=.5)+
+  geom_smooth(method=lm)+
+  theme(legend.position="bottom",
+        legend.title=element_blank())+
+  scale_y_continuous(limits=c(0,17))+
+  scale_color_brewer(palette="Dark2",direction=-1)+
+  labs(title="Move distances for HVRs to/from East Liberty")
+
+ggsave("Initial EDA/Scatter of Move Distance - leaving EL only.png")
+
+
+
 # leaflet()%>%
 #   addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
 #   addCircleMarkers(data=moves[1,]$geometry,
