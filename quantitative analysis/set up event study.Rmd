@@ -18,14 +18,17 @@ library(ggplot2)
 library(dummies)
 library(estimatr)
 ```
-define parameters for event study
+
 ```{r set_parameters}
-#define distance around each new apartment that "treatment" will be assigned to (in meters)
-treatment_distance<-500%>%units::set_units(m)
+#define ring around the apartment that we'll consider the "treatment area"
+ #creating a ring so that move-outs from whatever building existed on the same plot of land the apartment is on arent' included
+
+inner_distance<-50%>%units::set_units(m)
+outer_distance<-1000%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
 years_prior<-(5)
-years_after<-(4)
+years_after<-(5)
 
 #set Tau to normalize around (Tau that is forced to be 0)
 zero_tau=(-1)
@@ -37,6 +40,7 @@ included_neighborhoods<-c("East Liberty", "Homewood","Homewood South","Homewood 
                           "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
                           "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
                           "Morningside", "Stanton Heights")
+#included_neighborhoods<-c("East Liberty","Homewood")
 ```
 
 
@@ -108,14 +112,14 @@ distances<-st_distance(new_apartments$geometry,
                        panel_frame$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
-in_range<-which(distances<=treatment_distance,arr.ind=TRUE)%>%as.data.frame
+in_range<-which(distances>=inner_distance & distances<=outer_distance,arr.ind=TRUE)%>%as.data.frame
 
 #remove distances to preserve memory
 rm(distances)
 ```
 
 
-```{r construct_event_frame, message=FALSE}
+```{r construct_event_frame, warning=FALSE}
 #i<-1
 #create a vector of rows in new_apartments
 new_apartment_indices<-1:nrow(new_apartments)
@@ -196,7 +200,7 @@ taus_list<-taus_list[taus_list!="`Tau_999`"]
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("moved_out~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t)
+test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+hood)
 summary(test_run)
 ```
 
