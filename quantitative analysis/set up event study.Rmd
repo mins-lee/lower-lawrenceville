@@ -15,7 +15,7 @@ library(ggmap)
 library(rgdal)
 library(tidycensus)
 library(ggplot2)
-
+library(dummies)
 ```
 define parameters for event study
 ```{r set_parameters}
@@ -24,11 +24,18 @@ treatment_distance<-500%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
 years_prior<-(4)
-years_after<-(6)
+years_after<-(3)
 
 #set Tau to normalize around (Tau that is forced to be 0)
 zero_tau=(-1)
 
+#selct neighborhoods to include
+included_neighborhoods<-c("East Liberty", "Homewood","Homewood South","Homewood North", "Larimer",
+                          "Point Breeze", "East Hills", "Swisshelm Park",
+                          "Shadyside", "Squirrel Hill", "Garfield", "Bloomfield", "Highland Park",
+                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          "Morningside", "Stanton Heights")
 ```
 
 
@@ -63,23 +70,58 @@ geocoded_data<-dat_cleaned5%>%
   st_as_sf(crs = "+init=epsg:4326")%>%
   #join with neighborhoods
   st_join(neighborhoods,join=st_within,left=TRUE)%>%
-  unique()
+  unique()%>%
+  filter(hood%in%included_neighborhoods)
+```
+
+Create a year dataset, where each row corresponds to all of the instances of people living in an apartment in a given year
+```{r construct_panel_frame}
+year_range<-2003:2019
+for(year in year_range){
+  year_frame<-geocoded_data%>%
+    #create movein and moveout year variables to filter by
+    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+    #filter to only include rows where the stay includes that year
+    filter(movein_year<=year & moveout_year<=year)%>%
+    #create a flag indicating if they moved out in that year
+    mutate(moved_out=(moveout_year==year))%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))%>%
+    #add a year column
+    mutate(t=year)
+  #bind results
+  if(year==year_range[1]){
+    panel_frame<-year_frame
+  }else{
+    panel_frame<-rbind(year_frame,panel_frame)
+  }
+}
+
+
 ```
 
 ```{r calculate_apartment_address_distances}
 #calculate distances between new apartments and geocoded data
 distances<-st_distance(new_apartments$geometry,
-                       geocoded_data$geometry)
+                       panel_frame$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
 in_range<-which(distances<=treatment_distance,arr.ind=TRUE)%>%as.data.frame
 
+#remove distances to preserve memory
+rm(distances)
 ```
 
-```{r construct_event_frame}
-i<-1
+
+```{r construct_event_frame, message=FALSE}
+#i<-1
+#create a vector of rows in new_apartments
+new_apartment_indices<-1:nrow(new_apartments)
+
 #iterate through new apartments
-for(i in 1:nrow(new_apartments)){
+event_frame_function<-function(i,treated){
+  #print(i)
   #define apartment date
   apartment_year<-new_apartments[i,]$Opened%>%as.numeric()
   
@@ -88,39 +130,71 @@ for(i in 1:nrow(new_apartments)){
   
   #retrieve address indices in range
   voucher_indices_in_range<-in_range[in_range$row==i,]$col
-  for(year in year_range){
-      #limit geocoded data to just rows within range of new apartment
-    rows_in_range<-geocoded_data[voucher_indices_in_range,]%>%
-      #add a moveout year column
-      mutate(moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
-      #add a column for Tau: the difference between the apartment year and the given year
-      mutate(Tau=year-apartment_year)%>%
-      #add a dummy indicating whether or not they moved out in the given year
-      mutate(moved_out=(year==moveout_year))%>%
-      select(Tau,moved_out)
-    # if year is the first year in year range, create a new year_result frame, else rbind
-    if(year==year_range[1]){
-      year_result<-rows_in_range
-    }
-    else{
-      year_result<-rbind(year_result,rows_in_range)
-    }
-  }
-  # if i is the first apartment, create a new frame called "for_event_study", else rbind
-  if(i==1){
-    for_event_study<-year_result
-  }
-  else{
-    for_event_study<-rbind(for_event_study,year_result)
-  }
-
+  
+  #define rows in treatment, create a tau variable
+  treated_rows<-panel_frame%>%
+    #limit just to rows in distance range of given event
+    slice(voucher_indices_in_range)%>%
+    #define tau as difference between t and apartment_year
+    mutate(Tau=t-apartment_year)%>%
+    # limit only to years in year_range
+    filter(t%in%year_range)
+  #untreated rows serve as control, so define those too
+  untreated_rows<-panel_frame%>%
+    #limit just to rows outside distance range of given event
+    slice(-voucher_indices_in_range)%>%
+    #define tau as 999 (so it can be dropped later)
+    mutate(Tau=999)%>%
+    # limit only to years in year_range
+    filter(t%in%year_range)
+  
+  #return the binding of the two
+  rbind(treated_rows,untreated_rows)
 }
+
+#create a function that takes a dataframe as its argument and creates dummies for each tau value
+tau_dummies<-function(df){
+  #make tau a factor
+  df$Tau<-factor(df$Tau)
+  #iterate through the levels of Tau, create a dummy in a new frame named "Tau_-x" and bind to df
+  #x<-levels(df$Tau)[2]
+
+  for(x in levels(df$Tau)){
+    dummy_frame<-data.frame(col=(df$Tau==x))
+    #set the name to be "Tau_-x"
+    names(dummy_frame)<-paste0("Tau_",x)
+    df<-bind_cols(df,dummy_frame)
+  }
+  df
+}
+
+#call event frame function over new_apartment_indices
+# using do.call on rbind binds each event's rows together
+for_event_study<-do.call(rbind,
+                         #lapply calls the function over event indices
+                         lapply(new_apartment_indices,event_frame_function))%>%
+  #add tau dummies
+  tau_dummies()%>%
+  #remove the dummy for tau_999
+  select(-Tau_999)
+
+
+
 
 ```
 
 ```{r run_event_study}
+#create the formula for the event study
+taus_list<-c()
+for(tau in levels(for_event_study$Tau)){
+  taus_list<-c(taus_list,paste0("`Tau_",tau,"`"))
+}
+#remove taus_list
+taus_list<-taus_list[taus_list!="`Tau_999`"]
 
-test_run<-lm(moved_out~Tau,for_event_study%>%mutate(Tau=as.factor(Tau)))
+taus_string<-paste0(taus_list,collapse=" + ")
+formula<-paste0("moved_out~",taus_string)
+test_run<-lm(formula,data=for_event_study)
 summary(test_run)
 ```
 
