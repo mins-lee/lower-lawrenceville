@@ -16,6 +16,7 @@ library(rgdal)
 library(tidycensus)
 library(ggplot2)
 library(dummies)
+library(estimatr)
 ```
 define parameters for event study
 ```{r set_parameters}
@@ -193,8 +194,9 @@ for(tau in levels(for_event_study$Tau)){
 taus_list<-taus_list[taus_list!="`Tau_999`"]
 
 taus_string<-paste0(taus_list,collapse=" + ")
-formula<-paste0("moved_out~",taus_string)
-test_run<-lm(formula,data=for_event_study)
+formula<-as.formula(paste0("moved_out~",taus_string))
+
+test_run<-lm_robust(formula,data=for_event_study)
 summary(test_run)
 ```
 
