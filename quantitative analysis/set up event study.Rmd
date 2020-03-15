@@ -24,8 +24,8 @@ define parameters for event study
 treatment_distance<-500%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
-years_prior<-(4)
-years_after<-(3)
+years_prior<-(5)
+years_after<-(4)
 
 #set Tau to normalize around (Tau that is forced to be 0)
 zero_tau=(-1)
@@ -196,16 +196,18 @@ taus_list<-taus_list[taus_list!="`Tau_999`"]
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("moved_out~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study)
+test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t)
 summary(test_run)
 ```
 
 ```{r plot_test_run_coefficients}
-for_normalization<-test_run$coefficients[paste0("Tau",zero_tau)]
 
-#set variable to be subtracted from each value for normalization
+for_normalization<-test_run$coefficients[paste0("`Tau_",zero_tau,"`TRUE")]
 data.frame(coefs=test_run$coefficients-for_normalization,
-           tau=test_run$xlevels[[1]]%>%as.numeric())%>%
+           tau_string=names(test_run$coefficients))%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_|TRUE','',tau_string,)))%>%
   ggplot(aes(x=tau,y=coefs))+
   geom_line()
 
