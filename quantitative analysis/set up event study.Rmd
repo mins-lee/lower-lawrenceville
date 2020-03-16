@@ -6,8 +6,9 @@ output: html_document
 ---
 Event study possible specification
 $$Y_{i,ht} = \sum_{\tau=-q}^m(\beta_{\tau}D^{\tau}_{i,h,t}) + \theta_{h} + \psi_t + \epsilon_{i,h,t}$$
+
 *  $Y_{i,h,t}$ is equal to 1 if individual i in neighborhood h moves in time t.
-*  $\Tau$ is an event-time indicator which is equal to the difference between year t and the year that the apartment was constructed. 
+*  $\tau$ is an event-time indicator which is equal to the difference between year t and the year that the apartment was constructed. 
 *  $D_^{\tau}{i,h,t}$ is a set of event-time dummies equal to 1 if individual i in neighborhood h is within the treatment range around the location of the new apartment.
 *  $\theta_h$ represents neighborhood fixed-effects
 *  $\psi_t$ represents year fixed effects
@@ -220,11 +221,15 @@ summary(test_run)
 
 for_normalization<-test_run$coefficients[paste0("`Tau_",zero_tau,"`TRUE")]
 data.frame(coefs=test_run$coefficients-for_normalization,
-           tau_string=names(test_run$coefficients))%>%
+           tau_string=names(test_run$coefficients),
+           #specify range as 1.96*sd
+           error=test_run$std.error*.196)%>%
   #make tau numeric
   mutate(tau_string=gsub('`','',tau_string),
          tau=as.numeric(gsub('Tau_|TRUE','',tau_string,)))%>%
   ggplot(aes(x=tau,y=coefs))+
-  geom_line()
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))
 
 ```
