@@ -14,9 +14,13 @@ $$Y_{i,ht} = \sum_{\tau=-q}^m(\beta_{\tau}D^{\tau}_{i,h,t}) + \theta_{h} + \psi_
 + $\psi_t$ represents year fixed effects
 + $\epsilon_{i,h,t}$ is the error term, which should be uncorrelated with the other terms. 
 
-* Individuals in the treatment range of an apartment are repeated in the dataset for each event in which they're treated. The original panel dataset, where each row corresponds to individual i in year t, had 76,785 rows. The event study dataset has 87,798 rows. 
-* Some rows will be eliminated if we can identify that individuals have been forcibly displaced prior to the construction of an apartment (i.e, if forced out by a landlord to make room for new construction)
 * If there is a causal effect of the construction of a new apartment on displacement of nearby voucher residents, then the $\beta_{\tau}$ values will be close to zero for values of $\tau$ less than zero, and will be positive for values of $\tau$ greater than 0.
+* Untreated observations for a given event serve as the control, most rows will be untreated
+
+* The treatment range will be a ring around each new apartment location
+* Rows are repeated for each event where an individual is treated. If individual i's location in year t is in the treatment range for two different events, the rows corresponding to i and t will be repeated for each event, with different taus assigned depending on when each apartment opened.
+* Some rows will be eliminated if we can identify that individuals have been forcibly displaced prior to the construction of an apartment (i.e, if forced out by a landlord to make room for new construction)
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```

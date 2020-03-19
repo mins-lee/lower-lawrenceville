@@ -36,12 +36,13 @@ library(estimatr)
 #define ring around the apartment that we'll consider the "treatment area"
  #creating a ring so that move-outs from whatever building existed on the same plot of land the apartment is on arent' included
 
-inner_distance<-50%>%units::set_units(m)
-outer_distance<-1000%>%units::set_units(m)
+#distances in meters
+inner_distance<-150%>%units::set_units(m)
+outer_distance<-750%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
-years_prior<-(5)
-years_after<-(5)
+years_prior<-(4)
+years_after<-(4)
 
 #set Tau to normalize around (Tau that is forced to be 0)
 zero_tau=(-1)

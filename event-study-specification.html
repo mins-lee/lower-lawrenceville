@@ -377,9 +377,11 @@ summary {
 <li><span class="math inline">\(\theta_h\)</span> represents neighborhood fixed-effects</li>
 <li><span class="math inline">\(\psi_t\)</span> represents year fixed effects</li>
 <li><p><span class="math inline">\(\epsilon_{i,h,t}\)</span> is the error term, which should be uncorrelated with the other terms.</p></li>
-<li>Individuals in the treatment range of an apartment are repeated in the dataset for each event in which they’re treated. The original panel dataset, where each row corresponds to individual i in year t, had 76,785 rows. The event study dataset has 87,798 rows.</li>
-<li>Some rows will be eliminated if we can identify that individuals have been forcibly displaced prior to the construction of an apartment (i.e, if forced out by a landlord to make room for new construction)</li>
-<li><p>If there is a causal effect of the construction of a new apartment on displacement of nearby voucher residents, then the <span class="math inline">\(\beta_{\tau}\)</span> values will be close to zero for values of <span class="math inline">\(\tau\)</span> less than zero, and will be positive for values of <span class="math inline">\(\tau\)</span> greater than 0.</p></li>
+<li>If there is a causal effect of the construction of a new apartment on displacement of nearby voucher residents, then the <span class="math inline">\(\beta_{\tau}\)</span> values will be close to zero for values of <span class="math inline">\(\tau\)</span> less than zero, and will be positive for values of <span class="math inline">\(\tau\)</span> greater than 0.</li>
+<li><p>Untreated observations for a given event serve as the control, most rows will be untreated</p></li>
+<li>The treatment range will be a ring around each new apartment location</li>
+<li>Rows are repeated for each event where an individual is treated. If individual i’s location in year t is in the treatment range for two different events, the rows corresponding to i and t will be repeated for each event, with different taus assigned depending on when each apartment opened.</li>
+<li><p>Some rows will be eliminated if we can identify that individuals have been forcibly displaced prior to the construction of an apartment (i.e, if forced out by a landlord to make room for new construction)</p></li>
 </ul>
 
 
