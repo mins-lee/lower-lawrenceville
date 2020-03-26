@@ -6,6 +6,8 @@ library(tidyr)
 library(sf)
 library(openxlsx)
 
+#turn on option to cache tigris
+options(tigris_use_cache = TRUE)
 #this code references the excel file Meredith made breaking down the different columns available by year
 
 #goal: create a separate dataframe for each year that contains all of the columns needed
@@ -82,6 +84,7 @@ to_retrieve_study_10_14<-c(
   "over_25_pop" = "S2301_C01_025",
   # population over 25 to 64 with bachelors degree
   "over_25_bachelors" = "S2301_C01_029")
+
 # columns to retrieve for 15-18
 to_retrieve_study_15_18<-c(
   # total households
@@ -95,7 +98,12 @@ to_retrieve_study_15_18<-c(
   # population over 25 to 64 with bachelors degree
   "over_25_bachelors" = "S2301_C01_035")
 
-#year<-2010
+#create a zscore function that takes a vector as an argument
+zscore<-function(vector){
+  mu<-mean(vector,na.rm=TRUE)
+  sigma<-sd(vector,na.rm=TRUE)
+  vector2<-(vector-mu)/sigma
+}
 #create a function that takes a year as an argument, and returns a single dataframe at the tract level with all of the colums
 retrieve_census_data<-function(year){
   # set the list of study columns to retrieve based on the year
@@ -110,9 +118,10 @@ retrieve_census_data<-function(year){
                 variables = to_retrieve_acs5,
                 geography = "tract",
                 state = "PA",
-                county = "Allegheny",
+                county = "Allegheny"#,
                 #retrieve geometry for spatial mapping, only need to retrieve for one since they'll all be joined
-                geometry = TRUE)%>%
+                #geometry = TRUE
+                )%>%
     select(variable, estimate, GEOID)%>%
     #use spread to make the data horizontal (each row is one census tract)
     spread(key = "variable", value= "estimate")
@@ -163,13 +172,25 @@ retrieve_census_data<-function(year){
     mutate(pct_single_female_hh =single_female_hh/total_households,
            pct_single_male_hh = single_male_hh/total_households,
            pct_bachelors = over_25_bachelors/over_25_pop)%>%
+    #calculate zscores for each disadvantage index input
+    mutate(z_pov=zscore(all_poverty_pct/100),
+           z_single_fem=zscore(pct_single_female_hh),
+           z_male_unemp=zscore(1-(male_employment_rate/100)),
+           z_bachelors=zscore(1-pct_bachelors))%>%
     # make data rowwise to take the horizontal mean to calculate disadvantage index
     rowwise()%>%
     #calculate disadvantage index
     mutate(disadvantage_index = mean(c(all_poverty_pct/100,
                                      pct_single_female_hh,
                                      1-(male_employment_rate/100),
-                                     1-pct_bachelors),na.rm=TRUE))%>%
+                                     1-pct_bachelors),na.rm=TRUE)#,
+           # #calculate z score disadvantage index
+           # zscore_disadvantage = mean(z_pov,
+           #                            z_single_fem,
+           #                            z_male_unemp,
+           #                            z_bachelors,
+           #                            na.rm=TRUE)
+           )%>%
     #add in cbsa level variables
     mutate(cbsa_income=cbsa_data$cbsa_income,
            cbsa_home_value=cbsa_data$cbsa_home_value)%>%
@@ -185,12 +206,24 @@ retrieve_census_data<-function(year){
 
 
 
-
 # apply function to years, using lapply will return a list, where each item is the dataframe for a year
   # this is equivalent to a for loop over all years
+rm(indices_list)
 indices_list<-lapply(years,retrieve_census_data)
 names(indices_list)<-years
-
+#create a workbook that will be exported
+wb<-createWorkbook()
+#iterate through years, adding indices for given year to workbook
+for(year in years){
+  #create the worksheet
+  addWorksheet(wb,paste0(year))
+  #write data to worksheet
+  writeData(wb,paste0(year),indices_list[[paste0(year)]])
+}
+saveWorkbook(wb,file="data retrieval/index files/indices with zscore.xlsx",overwrite=TRUE)
+test<-test%>%
+  mutate(test=zscore(pct_bachelors))%>%
+  mutate(test2=zscore(1-(male_employment_rate/100)))
 #save indices to r file
 save(indices_list,file = "data retrieval/index files/indices.RData")
 

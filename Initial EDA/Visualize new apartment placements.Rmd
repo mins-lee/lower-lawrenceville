@@ -1,0 +1,95 @@
+---
+title: "observe new apartments"
+author: "Devraj Kori"
+date: "3/22/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggmap)
+library(rgdal)
+library(tidycensus)
+library(ggplot2)
+library(dummies)
+library(estimatr)
+library(readxl)
+```
+
+```{r visualize_new_apartments}
+setwd("..")
+#read in new apartment complex data
+market_rate<-read_csv("quantitative analysis/New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
+  #rename the units column
+  mutate(units = `# mkt rate units`)%>%
+  mutate(name=Notes)%>%
+  select(lon,lat,units,name)%>%
+  #remove NAS
+  filter(!is.na(lon))%>%
+  #add type label
+  mutate(type="Market Rate")
+
+mixed_income<-read_csv("quantitative analysis/New Mixed-Income Developments - Base List.csv")%>%
+  # create units column
+  mutate(units=`# mkt rate units`+`aff units?`)%>%
+  mutate(name=`Notes / Building Name`)%>%
+  select(lon,lat,units,name)%>%
+  #remove NAS
+  filter(!is.na(lon))%>%
+  #add type label
+  mutate(type="Mixed-income")
+  
+affordable<-read_csv("quantitative analysis/New Affordable Only Apts - Base List.csv")%>%
+  mutate(units=`aff units?`)%>%
+  mutate(name=Notes)%>%
+  select(lon,lat,units,name)%>%
+  #remove NAS
+  filter(!is.na(lon))%>%
+  #add type label
+  mutate(type="Affordable Only")
+
+apartments<-bind_rows(market_rate,mixed_income,affordable)%>%
+  #make it sf object
+  st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
+
+#read in neighborhoods
+hoods<-neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
+  select(hood,geometry)
+#defne palette
+pal <- colorFactor(
+  palette = "viridis",
+  domain = apartments$type%>%unique())
+
+leaflet()%>%
+  addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
+  addCircleMarkers(data = apartments,
+                   stroke = FALSE,
+                   fillOpacity=.8,
+                   radius=~units/10,
+                   color = ~pal(type),
+                   popup = ~name)%>%
+  #add in neighborhood boundaries
+  addPolylines(data=hoods,
+               color="black",
+               weight=3)%>%
+  addLegend("bottomright", pal = pal, values = unique(apartments$type),
+            title = "Apartment Type",
+            opacity = 1)%>%
+  #set the view to east liberty
+  setView(lng=-79.9266587,lat=40.4656763,zoom=15)
+
+
+```
+
+```{r viz_razed_buildings}
+setwd("..")
+
+razed<-read_excel("quantitative analysis/razed.xlsx")%>%
+  filter(Ward==11)
+
+
+```
