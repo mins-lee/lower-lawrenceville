@@ -1,0 +1,225 @@
+---
+title: "identify probable multi-unit building closures"
+author: "Devraj Kori"
+date: "3/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(sf)
+library(leaflet)
+library(ggmap)
+library(rgdal)
+library(tidycensus)
+library(ggplot2)
+library(dummies)
+library(estimatr)
+library(readxl)
+library(ggrepel)
+```
+
+Goal: To identify physical addresses that voucher data patterns suggest were multi-unit buildings that were either condemned/vacated entirely or had voucher recipients driven out. 
+
+To qualify in this analysis, a physical address has to:
+
+- be in East End
+- meet a minimum threshold of households in any one year of our study period (currently set to 6)
+- have no remaining voucher residents by a certain date (currently 31 December 2018)
+
+
+```{r parameters}
+#selct neighborhoods to include
+included_neighborhoods<-c("East Liberty", "Homewood","Homewood South","Homewood North", "Larimer",
+                          "Point Breeze", "East Hills", "Swisshelm Park",
+                          "Shadyside", "Squirrel Hill", "Garfield", "Bloomfield", "Highland Park",
+                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          "Morningside", "Stanton Heights")
+#define parameters that might change
+
+#define minimum number of units in physical address in year to qualify
+household_threshold = 6
+
+#define date by which everyone needs to be moved out to qualify
+moved_out_by = as.Date("2018-12-31",format("%Y-%m-%d"))
+
+#define date to impute for null moveouts
+#setting to 1920 is equivalent to dropping null moveout dates
+to_impute_moveout = as.Date("1920-01-23",format="%Y-%m-%d")
+
+#define the number of unique addresses to plot in each line chart
+graph_threshold = 6
+```
+
+```{r prep_data, include=FALSE}
+setwd("..")
+
+# read in geocoded addresses
+load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
+# read in voucher data
+load("data preparation/all data clean 29-feb-2020.RData",verbose=TRUE)
+
+#load pittsburgh neighborhood shapefile
+neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
+  select(hood,geometry)
+
+#join dat_cleaned5 with 
+geocoded_data<-dat_cleaned5%>%
+  # impute "2020-01-23" for missing move-outs
+  replace_na(list(MOVEOUTDATE = to_impute_moveout))%>%
+  #create the for_geocode_addr column
+  mutate(for_geocode_addr = paste(PRIMARYSTREET,ZIP,sep = ", "))%>%
+  left_join(correctly_coded%>%
+              select(for_geocode_addr))%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, for_geocode_addr,geometry)%>%
+  #make into sf object for join
+  st_as_sf(crs = "+init=epsg:4326")%>%
+  #join with neighborhoods
+  st_join(neighborhoods,join=st_within,left=TRUE)%>%
+  unique()%>%
+  filter(hood%in%included_neighborhoods)
+
+```
+```{r no_res_end,echo=FALSE,warning=FALSE,message=FALSE}
+# identify physical addresses that had a resident as of moved_out_by
+not_closed<-geocoded_data%>%
+  #check if moved_out_by is less than moveout
+  filter(moved_out_by<=MOVEOUTDATE)%>%
+  select(for_geocode_addr)%>%
+  unlist()
+  
+
+```
+
+```{r construct_panel_frame, echo=FALSE,warning=FALSE,message=FALSE}
+year_range<-2003:2019
+for(year in year_range){
+  year_frame<-geocoded_data%>%
+    #filter out the addresses that have residents at the moved_out_by date
+    filter(!for_geocode_addr%in%not_closed)%>%
+    #create movein and moveout year variables to filter by
+    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+    #filter to only include rows where the stay includes that year
+    filter(movein_year<=year & moveout_year>=year)%>%
+    #create a flag indicating if they moved out in that year
+    mutate(moved_out=(moveout_year==year))%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))%>%
+    #add a year column
+    mutate(year=year)
+  #bind results
+  if(year==year_range[1]){
+    panel_frame<-year_frame
+  }else{
+    panel_frame<-rbind(year_frame,panel_frame)
+  }
+}
+
+```
+
+```{r hh_year,echo=FALSE,warning=FALSE,message=FALSE}
+#calculate the number of unique clients per year per address
+hh_year_addr<-panel_frame%>%
+  group_by(year,for_geocode_addr)%>%
+  summarise(hh=n_distinct(CLIENT_ID))
+
+#identify addresses that at least as many households at the thresholds at one point
+met_threshold<-hh_year_addr%>%
+  group_by(for_geocode_addr)%>%
+  summarise(max_hh=max(hh))%>%
+  ungroup()%>%
+  filter(max_hh>=household_threshold)%>%
+  arrange(desc(max_hh))
+
+
+closed_down<-hh_year_addr%>%
+  filter(for_geocode_addr%in%met_threshold$for_geocode_addr)
+
+#unique(closed_down$for_geocode_addr)
+
+```
+
+```{r plot_res_year,echo=FALSE,warning=FALSE,message=FALSE}
+# the amount of graphs to make is the number of addresses that met threshold divided by the graph_threshold
+to_graph<-1:floor(nrow(met_threshold)/graph_threshold)
+
+
+for(i in to_graph){
+  begin=(i-1)*graph_threshold+1
+  end=i*graph_threshold
+  addresses_to_graph<-met_threshold%>%
+    slice(begin:end)
+  #create a dataframe for labels
+label_frame<-closed_down%>%
+  filter(for_geocode_addr%in%addresses_to_graph$for_geocode_addr)%>%
+  group_by(for_geocode_addr)%>%
+  #only apply to max year
+  summarise(year=round(max(year)))%>%
+  as.data.frame()%>%
+  select(-geometry)%>%
+  #join closed_down back in to get the hh for that year
+  left_join(closed_down%>%
+              as.data.frame%>%
+              select(-geometry))%>%
+  #create a field for label
+  mutate(for_lab=gsub(",.*","",for_geocode_addr))
+
+print(closed_down%>%
+  #select just rows for the top {graph threshold addresses}
+  filter(for_geocode_addr%in%addresses_to_graph$for_geocode_addr)%>%
+  ggplot(aes(x=year,y=hh,color=for_geocode_addr))+
+  geom_line()+
+  geom_label_repel(data=label_frame,aes(label=for_lab))+
+  scale_color_viridis_d()+
+  theme(legend.position="none")+
+  labs(x="year",y="voucher households",
+       title=)+
+  xlim(c(2003,2020))
+  )
+
+}
+
+
+
+
+
+```
+
+
+```{r plot_leaflet,echo=FALSE}
+#read in the bnps
+bnps<-read_excel("Redevelopmentprojects_3.24.20.xlsx",sheet="Combined wgeocode")%>%
+  #filter out missing xs
+  filter(!is.na(X))%>%
+  st_as_sf(coords=c("X","Y"),crs=4326)
+
+#map the closed addresses and bnps
+leaflet()%>%
+  addProviderTiles(providers$CartoDB.Positron)%>%
+  addCircleMarkers(data=closed_down%>%
+                     group_by(for_geocode_addr)%>%
+                     summarise(year=max(year),
+                               max_hh=max(hh))%>%
+                     ungroup(),
+                   stroke=FALSE,
+                   radius=~max_hh/3,
+                   color="red",
+                   popup=~paste(gsub(",.*","",for_geocode_addr),year))%>%
+  addCircleMarkers(data=bnps,
+                   stroke=FALSE,
+                   radius=7,
+                   color="blue",
+                   popup=~paste(`Development Projects`,`Date-Started`))
+
+```
+
+```{r test, include=FALSE}
+test<-hh_year_addr%>%
+  filter(grepl("3[0-9][0-9] n negley",for_geocode_addr,ignore.case=TRUE))
+
+```

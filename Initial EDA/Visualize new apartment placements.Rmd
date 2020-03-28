@@ -20,14 +20,14 @@ library(estimatr)
 library(readxl)
 ```
 
-```{r visualize_new_apartments}
+```{r visualize_new_apartments,echo=FALSE}
 setwd("..")
 #read in new apartment complex data
 market_rate<-read_csv("quantitative analysis/New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
   #rename the units column
   mutate(units = `# mkt rate units`)%>%
   mutate(name=Notes)%>%
-  select(lon,lat,units,name)%>%
+  select(lon,lat,units,name,Opened)%>%
   #remove NAS
   filter(!is.na(lon))%>%
   #add type label
@@ -37,7 +37,7 @@ mixed_income<-read_csv("quantitative analysis/New Mixed-Income Developments - Ba
   # create units column
   mutate(units=`# mkt rate units`+`aff units?`)%>%
   mutate(name=`Notes / Building Name`)%>%
-  select(lon,lat,units,name)%>%
+  select(lon,lat,units,name,Opened)%>%
   #remove NAS
   filter(!is.na(lon))%>%
   #add type label
@@ -46,7 +46,7 @@ mixed_income<-read_csv("quantitative analysis/New Mixed-Income Developments - Ba
 affordable<-read_csv("quantitative analysis/New Affordable Only Apts - Base List.csv")%>%
   mutate(units=`aff units?`)%>%
   mutate(name=Notes)%>%
-  select(lon,lat,units,name)%>%
+  select(lon,lat,units,name,Opened)%>%
   #remove NAS
   filter(!is.na(lon))%>%
   #add type label
@@ -69,9 +69,9 @@ leaflet()%>%
   addCircleMarkers(data = apartments,
                    stroke = FALSE,
                    fillOpacity=.8,
-                   radius=~units/10,
+                   radius=~units/15,
                    color = ~pal(type),
-                   popup = ~name)%>%
+                   popup = ~paste(name,Opened))%>%
   #add in neighborhood boundaries
   addPolylines(data=hoods,
                color="black",

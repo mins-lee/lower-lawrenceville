@@ -7,6 +7,7 @@ library(stringr)
 options(scipen=999)
 #store list of files
 #setwd("initial eda")
+
 file_names<-list.files(path=paste0(getwd(),"/data preparation"),pattern="*.txt")
 #use lapply to read in each file (using the read_tsv function) and store them in a list
 data_list<-lapply(file_names,function(x) read_tsv(paste0(getwd(),"/data preparation/",x)))
