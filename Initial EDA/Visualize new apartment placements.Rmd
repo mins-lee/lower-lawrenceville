@@ -22,6 +22,16 @@ library(readxl)
 
 ```{r visualize_new_apartments,echo=FALSE}
 setwd("..")
+
+#set neighborhoods to include
+included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
+                          "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
+                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
+                          "Highland Park", "Morningside",
+                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          "Morningside", "Stanton Heights")
+
 #read in new apartment complex data
 market_rate<-read_csv("quantitative analysis/New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
   #rename the units column
@@ -55,14 +65,19 @@ affordable<-read_csv("quantitative analysis/New Affordable Only Apts - Base List
 apartments<-bind_rows(market_rate,mixed_income,affordable)%>%
   #make it sf object
   st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
-
+bnps<-bnps_recoded%>%
+  mutate(type=paste(Type, "BNP"))
+#load bnps
+load("quantitative analysis/bnps re-geocoded.Rdata")
 #read in neighborhoods
 hoods<-neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
-  select(hood,geometry)
+  select(hood,geometry)%>%
+  filter(hood%in%included_neighborhoods)
 #defne palette
 pal <- colorFactor(
   palette = "viridis",
-  domain = apartments$type%>%unique())
+  domain = c(apartments$type%>%unique(),
+             bnps$type%>%unique()))
 
 leaflet()%>%
   addProviderTiles(provider = "CartoDB.Positron", group = "Positron")%>%
@@ -72,11 +87,19 @@ leaflet()%>%
                    radius=~units/15,
                    color = ~pal(type),
                    popup = ~paste(name,Opened))%>%
+  #add BNPs to test overlap
+  addCircleMarkers(data=bnps,
+                   radius=8,
+                   fillOpacity=.8,
+                   stroke=FALSE,
+                   color=~pal(type),
+                   popup=~paste(`Development.Projects`,`Date-Completed`))%>%
   #add in neighborhood boundaries
   addPolylines(data=hoods,
                color="black",
                weight=3)%>%
-  addLegend("bottomright", pal = pal, values = unique(apartments$type),
+  addLegend("bottomright", pal = pal, values = c(apartments$type%>%unique(),
+                                                 bnps$type%>%unique()),
             title = "Apartment Type",
             opacity = 1)%>%
   #set the view to east liberty

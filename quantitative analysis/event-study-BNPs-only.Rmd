@@ -1,5 +1,5 @@
 ---
-title: "event study"
+title: "event study bnps only"
 author: "Devraj Kori"
 date: "3/13/2020"
 output: html_document
@@ -33,6 +33,8 @@ library(tidycensus)
 library(ggplot2)
 library(dummies)
 library(estimatr)
+library(openxlsx)
+
 ```
 
 ```{r set_parameters}
@@ -40,12 +42,12 @@ library(estimatr)
  #creating a ring so that move-outs from whatever building existed on the same plot of land the apartment is on arent' included
 
 #distances in meters
-inner_distance<-150%>%units::set_units(m)
-outer_distance<-750%>%units::set_units(m)
+inner_distance<-50%>%units::set_units(m)
+outer_distance<-1000%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
-years_prior<-(4)
-years_after<-(4)
+years_prior<-(5)
+years_after<-(6)
 
 #set Tau to normalize around (Tau that is forced to be 0)
 zero_tau=(-1)
@@ -62,14 +64,21 @@ included_neighborhoods<-c("East Liberty", "Homewood","Homewood South","Homewood 
 
 
 ```{r load_datasets}
-#read in new apartment complex data
-new_apartments<-read_csv("New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
-  #remove NAS
-  filter(!is.na(lon))%>%
-  #make it sf object
-  st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
+# #read in new apartment complex data
+# new_apartments<-read_csv("New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
+#   #remove NAS
+#   filter(!is.na(lon))%>%
+#   #make it sf object
+#   st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
+#read in the bnps
+bnps<-read.xlsx("Redevelopmentprojects_3.24.20.xlsx",sheet="Combined wgeocode")%>%
+  #filter out missing xs
+  filter(!is.na(X))%>%
+  st_as_sf(coords=c("X","Y"),crs=4326)
 
-
+#read in zoning data
+zoning<-read_sf("zoning/zoning.geojson")%>%
+  select(full_zoning_type)
 #move the directory up a level (outside "quantitative analysis into main folder)
 setwd("..")
 load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
@@ -93,9 +102,11 @@ geocoded_data<-dat_cleaned5%>%
   #make into sf object for join
   st_as_sf(crs = "+init=epsg:4326")%>%
   #join with neighborhoods
-  st_join(neighborhoods,join=st_within,left=TRUE)%>%
+  st_join(neighborhoods,join=st_within)%>%
   unique()%>%
-  filter(hood%in%included_neighborhoods)
+  filter(hood%in%included_neighborhoods)%>%
+  #join with zoning data
+  st_join(zoning,join=st_within)
 ```
 
 Create a year dataset, where each row corresponds to all of the instances of people living in an apartment in a given year
@@ -110,10 +121,15 @@ for(year in year_range){
     filter(movein_year<=year & moveout_year<=year)%>%
     #create a flag indicating if they moved out in that year
     mutate(moved_out=(moveout_year==year))%>%
-    #remove move-in/move-out fields since they're not relevant in this structure
-    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))%>%
     #add a year column
-    mutate(t=year)
+    mutate(t=year)%>%
+    #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
+    group_by(CLIENT_ID,t)%>%
+    slice(which.min(MOVEINDATE))%>%
+    ungroup()%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year,full_zoning_type))
+    
   #bind results
   if(year==year_range[1]){
     panel_frame<-year_frame
@@ -122,12 +138,11 @@ for(year in year_range){
   }
 }
 
-
 ```
 
 ```{r calculate_apartment_address_distances}
 #calculate distances between new apartments and geocoded data
-distances<-st_distance(new_apartments$geometry,
+distances<-st_distance(bnps$geometry,
                        panel_frame$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
@@ -141,16 +156,17 @@ rm(distances)
 ```{r construct_event_frame, warning=FALSE}
 #i<-1
 #create a vector of rows in new_apartments
-new_apartment_indices<-1:nrow(new_apartments)
+bnp_indices<-1:nrow(bnps)
 
-#iterate through new apartments
+# this function returns the event frame by iterating through each event, assigning event-time dummies to each rows
+# rows outside of the treatment range are assigned Tau=0 for all rows
 event_frame_function<-function(i,treated){
   #print(i)
   #define apartment date
-  apartment_year<-new_apartments[i,]$Opened%>%as.numeric()
+  event_year<-bnps[i,]$`Date-Started`%>%as.numeric()
   
   #define range of years based on chosen years before/after
-  year_range<-(apartment_year-years_prior):(apartment_year+years_after)
+  year_range<-(event_year-years_prior):(event_year+years_after)
   
   #retrieve address indices in range
   voucher_indices_in_range<-in_range[in_range$row==i,]$col
@@ -160,7 +176,7 @@ event_frame_function<-function(i,treated){
     #limit just to rows in distance range of given event
     slice(voucher_indices_in_range)%>%
     #define tau as difference between t and apartment_year
-    mutate(Tau=t-apartment_year)%>%
+    mutate(Tau=t-event_year)%>%
     # limit only to years in year_range
     filter(t%in%year_range)
   #untreated rows serve as control, so define those too
@@ -192,11 +208,12 @@ tau_dummies<-function(df){
   df
 }
 
+for_event_study_list<-lapply(bnp_indices,event_frame_function)
 #call event frame function over new_apartment_indices
 # using do.call on rbind binds each event's rows together
 for_event_study<-do.call(rbind,
                          #lapply calls the function over event indices
-                         lapply(new_apartment_indices,event_frame_function))%>%
+                         for_event_study_list)%>%
   #add tau dummies
   tau_dummies()%>%
   #remove the dummy for tau_999
@@ -219,7 +236,7 @@ taus_list<-taus_list[taus_list!="`Tau_999`"]
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("moved_out~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+hood)
+test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+full_zoning_type,se_type="stata")
 summary(test_run)
 ```
 
@@ -229,7 +246,7 @@ for_normalization<-test_run$coefficients[paste0("`Tau_",zero_tau,"`TRUE")]
 data.frame(coefs=test_run$coefficients-for_normalization,
            tau_string=names(test_run$coefficients),
            #specify range as 1.96*sd
-           error=test_run$std.error*.196)%>%
+           error=test_run$std.error*1.96)%>%
   #make tau numeric
   mutate(tau_string=gsub('`','',tau_string),
          tau=as.numeric(gsub('Tau_|TRUE','',tau_string,)))%>%
@@ -237,5 +254,12 @@ data.frame(coefs=test_run$coefficients-for_normalization,
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))
+
+```
+
+```{r test_issues}
+tau_minus_3<-for_event_study%>%
+  filter(`Tau_-3`==1)
+
 
 ```
