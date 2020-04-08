@@ -305,4 +305,10 @@ st_write(obj = do.call(rbind,indices_list), # bind all years into one dataset
 # test<-indices_list[1]
 # names(test)
 # test2<-test[[1]]
-
+# require(tidycensus)
+# require(dplyr)
+# #load all variables available in 2010
+# vars<-load_variables(year=2018,dataset="acs5")
+# age_vars<-vars%>%
+#   #searches for the word "age" in the concept column of possible vars
+#   filter(grepl("age",concept,ignore.case=TRUE))

@@ -65,6 +65,9 @@ affordable<-read_csv("quantitative analysis/New Affordable Only Apts - Base List
 apartments<-bind_rows(market_rate,mixed_income,affordable)%>%
   #make it sf object
   st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
+
+load("quantitative analysis/bnps re-geocoded.Rdata")
+
 bnps<-bnps_recoded%>%
   mutate(type=paste(Type, "BNP"))
 #load bnps

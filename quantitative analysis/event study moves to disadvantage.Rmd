@@ -1,5 +1,6 @@
+
 ---
-title: "event study bnps only"
+title: "event study bnps and apartments combined"
 author: "Devraj Kori"
 date: "3/13/2020"
 output: html_document
@@ -42,7 +43,7 @@ library(openxlsx)
  #creating a ring so that move-outs from whatever building existed on the same plot of land the apartment is on arent' included
 
 #distances in meters
-inner_distance<-25%>%units::set_units(m)
+inner_distance<-50%>%units::set_units(m)
 outer_distance<-500%>%units::set_units(m)
 
 #define binning, the maximum number of years before/after an opening to include
@@ -80,77 +81,81 @@ races_included<-c("Black/African American",
 #   #make it sf object
 #   st_as_sf(coords=c("lon","lat"),crs = "+init=epsg:4326")
 #read in the bnps
-load("bnps re-geocoded.Rdata")
-bnps<-bnps_recoded
+# load("bnps re-geocoded.Rdata")
+# bnps<-bnps_recoded
+load("combined apartments commercial bnps.Rdata")
+
 #read in zoning data
 zoning<-read_sf("zoning/zoning.geojson")%>%
   select(full_zoning_type)
+
+#read in moves
+load("east end moves.Rdata")
 #move the directory up a level (outside "quantitative analysis into main folder)
 setwd("..")
-load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
-load("data preparation/all data clean 29-feb-2020.RData",verbose=TRUE)
 
 
 #load pittsburgh neighborhood shapefile
 neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
   select(hood,geometry)
 
-#join dat_cleaned5 with 
-geocoded_data<-dat_cleaned5%>%
-  #remove NA move-outs, since this version is only looking at displacements
-  filter(!is.na(MOVEOUTDATE))%>%
-  #create the for_geocode_addr column
-  mutate(for_geocode_addr = paste(PRIMARYSTREET,ZIP,sep = ", "))%>%
-  left_join(correctly_coded%>%
-              select(for_geocode_addr)%>%
-              unique())%>%
-  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP,geometry)%>%
-  #make into sf object for join
-  st_as_sf(crs = "+init=epsg:4326")%>%
-  #join with neighborhoods
-  st_join(neighborhoods,join=st_within)%>%
-  unique()%>%
+#limit apartments/bnps combined to just selected neighborhoods
+combined<-apartments_commercial_bnps%>%
+  st_join(neighborhoods,st_within)%>%
   filter(hood%in%included_neighborhoods)%>%
+  select(-hood)%>%
+  #remove affordable-only
+  filter(Type!="Affordable Only")
+
+#change the type for Rippey street to Mixed income
+combined[combined$Development.Projects=="Rippey Apartment Complex",]$Type<-"Mixed-income"
+combined[combined$Development.Projects=="East Mall Apartments",]$Type<-"Mixed-income"
+#join dat_cleaned5 with 
+moves2<-moves%>%
+  st_as_sf()%>%
+  filter(start_hood%in%included_neighborhoods)%>%
   #join with zoning data
   st_join(zoning,join=st_within)%>%
-  filter(RACE%in%races_included)
+  filter(race%in%races_included)%>%
+  # add a year column
+  mutate(t=as.numeric(format(moveout_date,"%Y")))
+
 ```
 
-Create a year dataset, where each row corresponds to all of the instances of people living in an apartment in a given year
 ```{r construct_panel_frame}
-year_range<-2003:2019
-for(year in year_range){
-  year_frame<-geocoded_data%>%
-    #create movein and moveout year variables to filter by
-    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
-           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
-    #filter to only include rows where the stay includes that year
-    filter(movein_year<=year & moveout_year<=year)%>%
-    #create a flag indicating if they moved out in that year
-    mutate(moved_out=(moveout_year==year))%>%
-    #add a year column
-    mutate(t=year)%>%
-    #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
-    group_by(CLIENT_ID,t)%>%
-    slice(which.min(MOVEINDATE))%>%
-    ungroup()%>%
-    #remove move-in/move-out fields since they're not relevant in this structure
-    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
-    
-  #bind results
-  if(year==year_range[1]){
-    panel_frame<-year_frame
-  }else{
-    panel_frame<-rbind(year_frame,panel_frame)
-  }
-}
+# year_range<-2003:2019
+# for(year in year_range){
+#   year_frame<-moves2%>%
+#     #create movein and moveout year variables to filter by
+#     mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+#            moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+#     #filter to only include rows where the stay includes that year
+#     filter(movein_year<=year & moveout_year<=year)%>%
+#     #create a flag indicating if they moved out in that year
+#     mutate(moved_out=(moveout_year==year))%>%
+#     #add a year column
+#     mutate(t=year)%>%
+#     #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
+#     group_by(CLIENT_ID,t)%>%
+#     slice(which.min(MOVEINDATE))%>%
+#     ungroup()%>%
+#     #remove move-in/move-out fields since they're not relevant in this structure
+#     select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
+#     
+#   #bind results
+#   if(year==year_range[1]){
+#     panel_frame<-year_frame
+#   }else{
+#     panel_frame<-rbind(year_frame,panel_frame)
+#   }
+# }
 
 ```
 
 ```{r calculate_apartment_address_distances}
 #calculate distances between new apartments and geocoded data
-distances<-st_distance(bnps$geometry,
-                       panel_frame$geometry)
+distances<-st_distance(apartments_commercial_bnps$geometry,
+                       moves2$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
 in_range<-which(distances>=inner_distance & distances<=outer_distance,arr.ind=TRUE)%>%as.data.frame
@@ -163,15 +168,16 @@ in_range<-which(distances>=inner_distance & distances<=outer_distance,arr.ind=TR
 ```{r construct_event_frame, warning=FALSE}
 #i<-1
 #create a vector of rows in new_apartments
-bnp_indices<-1:nrow(bnps)
+bnp_indices<-1:nrow(combined)
 
 # this function returns a dataframe for a given event, with an event-time Tau value assigned to events in the treatment range. Untreated events are returned with a Tau value of 999 
 # rows outside of the treatment range are assigned Tau=0 for all rows
 event_frame_function<-function(i){
   #print(i)
   #define apartment date
-  event_year<-bnps[i,]$`Date-Started`%>%as.numeric()
-  event_name<-bnps[i,]$`Development.Projects`
+  event_year<-combined[i,]$`Date-Completed`%>%as.numeric()
+  event_name<-combined[i,]$`Development.Projects`
+  event_type<-combined[i,]$Type
   #define range of years based on chosen years before/after
   year_range<-(event_year-years_prior):(event_year+years_after)
   
@@ -179,18 +185,20 @@ event_frame_function<-function(i){
   voucher_indices_in_range<-in_range[in_range$row==i,]$col
   
   #define rows in treatment, create a tau variable
-  treated_rows<-panel_frame%>%
+  treated_rows<-moves2%>%
     #limit just to rows in distance range of given event
     slice(voucher_indices_in_range)%>%
     #define tau as difference between t and apartment_year
     mutate(Tau=t-event_year)%>%
     # limit only to years in year_range
     filter(t%in%year_range)%>%
-    #add event name
-    mutate(event=event_name)
+    #add event name and event type
+    mutate(event=event_name,
+           type=event_type)
+
   
   #untreated rows serve as control, so define those too
-  untreated_rows<-panel_frame%>%
+  untreated_rows<-moves2%>%
     #limit just to rows outside distance range of given event
     slice(-voucher_indices_in_range)%>%
     #define tau as 999 (so it can be dropped later)
@@ -198,7 +206,8 @@ event_frame_function<-function(i){
     # limit only to years in year_range
     filter(t%in%year_range)%>%
     #create a blank event_name field for untreated rows
-    mutate(event=NA)
+    mutate(event="none",
+           type="none")
   
   #return the binding of the two
   rbind(treated_rows,untreated_rows)
@@ -232,7 +241,9 @@ for_event_study<-do.call(rbind,
   tau_dummies()%>%
   #remove the dummy for tau_999, corresponding to untreated events
   select(-Tau_999)%>%
-  unique()
+  unique()%>%
+  #add field for disadvantage change, which will be the outcome
+  mutate(disadvantage_change=end_disadvantage-start_disadvantage)
 
 
 
@@ -248,9 +259,9 @@ for(tau in levels(for_event_study$Tau)){
 taus_list<-taus_list[taus_list!="`Tau_999`"]
 
 taus_string<-paste0(taus_list,collapse=" + ")
-formula<-as.formula(paste0("log(moved_out)~",taus_string))
+formula<-as.formula(paste0("disadvantage_change~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+hood,se_type="stata")
+test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+start_hood+full_zoning_type,se_type="stata")
 summary(test_run)
 ```
 
@@ -267,29 +278,32 @@ data.frame(coefs=test_run$coefficients-for_normalization,
   ggplot(aes(x=tau,y=coefs))+
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
-  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="Moves to Disadvantage (95% C.I.s shown)",
+       y = "Increase in disadvantage in event year",
+       x = "Years after event")
 
 ```
 
 ```{r test_issues}
-tau_minus_3<-for_event_study%>%
-  filter(`Tau_-3`==1)
-test<-tau_minus_3%>%
-  group_by(event)%>%
-  summarise(move_pct=mean(moved_out),
-            rows=n())
-
-target_minus_3<-tau_minus_3%>%
-  filter(event=="Target")
-
-leaflet()%>%
-  addProviderTiles(providers$CartoDB.Positron)%>%
-  addCircleMarkers(data=target_minus_3,
-                   radius=5,
-                   stroke=FALSE)%>%
-  addCircleMarkers(data=bnps%>%
-                     filter(`Development.Projects`=="Target"),
-                   radius=5,
-                   stroke=FALSE,
-                   color="red")
+# tau_minus_4<-for_event_study%>%
+#   filter(`Tau_-4`==1)
+# test<-tau_minus_4%>%
+#   group_by(event)%>%
+#   summarise(move_pct=mean(moved_out),
+#             rows=n())
+# 
+# target_minus_3<-tau_minus_3%>%
+#   filter(event=="Target")
+# 
+# leaflet()%>%
+#   addProviderTiles(providers$CartoDB.Positron)%>%
+#   addCircleMarkers(data=target_minus_3,
+#                    radius=5,
+#                    stroke=FALSE)%>%
+#   addCircleMarkers(data=apartments_commercial_bnps%>%
+#                      filter(`Development.Projects`=="Target"),
+#                    radius=5,
+#                    stroke=FALSE,
+#                    color="red")
 ```

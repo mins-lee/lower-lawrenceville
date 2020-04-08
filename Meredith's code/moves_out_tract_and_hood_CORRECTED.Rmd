@@ -1,0 +1,1850 @@
+---
+title: "Untitled"
+author: "Meredith Meadows"
+date: "3/10/2020"
+output: html_document
+---
+
+
+```{r}
+if (!require("geosphere")) install.packages("geosphere")
+library(geosphere)
+
+if (!require("rlist")) install.packages("rlist")
+library(rlist)
+
+if (!require("readr")) install.packages("readr")
+library(readr)
+
+if (!require("lubridate")) install.packages("lubridate")
+library(lubridate)
+
+if (!require("kableExtra")) install.packages("kableExtra")
+library(kableExtra)
+
+
+library(openxlsx)
+#library(lubridate)
+library(tidyverse)
+#library(rlist)
+library(dplyr)
+library(readxl)
+
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+```
+
+```{r}
+#test <- read_xlsx("Moves_out_summary_tables.xlsx", sheet = 1)
+##View(test)
+
+#mean(test$`Total Moves to Neighborhood`, na.rm = TRUE)
+
+
+#test$`Disadvantage Change`
+```
+
+
+main file with addresses and census tracts
+```{r}
+address_tracts <- read.csv("address_tracts_only.csv", header = TRUE)
+#nrow(address_tracts)    3,717
+
+#head(address_tracts)
+
+address_tracts <- address_tracts %>%
+  select("X", "Y", "CLIENT_ID", "MOVEINDATE", "MOVEOUTDATE", "hood", "NAME10", "GEOID_Num", "GENDER", "RACE")
+
+
+address_tracts$MOVEINDATE <- mdy_hms(as.character(address_tracts$MOVEINDATE))
+#data$MOVEINDATE[1:10]   #works
+
+address_tracts$MOVEOUTDATE <- mdy_hms(as.character(address_tracts$MOVEOUTDATE))
+#data$MOVEOUTDAT[1:10]    #work
+
+```
+
+second main file with DI for all years except 2000
+```{r}
+DI_file <- read_xlsx("compiled_census_table.xlsx")  
+#head(DI_file)
+
+DI_file <- DI_file %>%
+  select("GEOID", "disadvantage_index", "year")
+#nrow(DI_file)  #3618
+DI_file$GEOID_Num <- DI_file$GEOID
+
+#subset this by year to get the DI for each year of the study period 
+```
+
+distance function 
+```{r}
+#source: https://blog.exploratory.io/calculating-distances-between-two-geo-coded-locations-358e65fcafae
+
+get_geo_distance = function(long1, lat1, long2, lat2, units = "miles") {
+  loadNamespace("purrr")
+  loadNamespace("geosphere")
+  longlat1 = purrr::map2(long1, lat1, function(x,y) c(x,y))
+  longlat2 = purrr::map2(long2, lat2, function(x,y) c(x,y))
+  distance_list = purrr::map2(longlat1, longlat2, function(x,y) geosphere::distHaversine(x, y))
+  distance_m = list.extract(distance_list, position = 1)
+  if (units == "km") {
+    distance = distance_m / 1000.0;
+  }
+  else if (units == "miles") {
+    distance = distance_m / 1609.344
+  }
+  else {
+    distance = distance_m
+    # This will return in meter as same way as distHaversine function. 
+  }
+  distance
+}
+
+#will be used to calculate distance in miles after origin/destination addresses have been matched
+```
+
+identifying moves out of EL in 2010   #correct
+```{r}
+#get 2010 subset from DI_file
+
+DI_2010 <- DI_file[which(DI_file$year == 2010),]
+DI_2010$GEOID_Num <- as.numeric(DI_2010$GEOID)
+
+DI_2010$category[DI_2010$disadvantage_index > 0.0 & DI_2010$disadvantage_index <= .14] = "Low disadvantage"
+DI_2010$category[DI_2010$disadvantage_index > .14 & DI_2010$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2010$category[DI_2010$disadvantage_index > .32 & DI_2010$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2010$category[DI_2010$disadvantage_index > .45 & DI_2010$disadvantage_index <= .63] = "High disadvantage"
+DI_2010$category[DI_2010$disadvantage_index > .63 & DI_2010$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2010$category_num[DI_2010$disadvantage_index > 0.0 & DI_2010$disadvantage_index <= .14] = 1
+DI_2010$category_num[DI_2010$disadvantage_index > .14 & DI_2010$disadvantage_index <= .32] = 2
+DI_2010$category_num[DI_2010$disadvantage_index > .32 & DI_2010$disadvantage_index <= .45] = 3
+DI_2010$category_num[DI_2010$disadvantage_index > .45 & DI_2010$disadvantage_index <= .63] = 4
+DI_2010$category_num[DI_2010$disadvantage_index > .63 & DI_2010$disadvantage_index <= 1.0] = 5
+#View(DI_2010)
+
+
+
+#moves out of EL
+out_2010 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2010-12-31" & address_tracts$MOVEOUTDATE >= "2010-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2010 <- out_2010 %>% inner_join(DI_2010, by = "GEOID_Num")
+#View(out_2010)
+
+#moves ioto other neighborhoods
+in_2010 <- address_tracts[which((address_tracts$MOVEINDATE <= "2011-1-1" & address_tracts$MOVEINDATE >= "2010-01-01" & address_tracts$hood != "East Liberty")), ]
+#nrow(in_2010)
+
+#race_df<- in_2010 %>%
+#  select(c("RACE", "GENDER", "CLIENT_ID"))
+#head(race_df)
+
+in_2010 <- in_2010 %>% inner_join(DI_2010, by = "GEOID_Num")
+#View(in_2010)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2010 <- in_2010 %>% inner_join(out_2010, by = "CLIENT_ID")
+#View(moved_out_2010)
+#write.csv(moved_out_2010, file = "destination_addresses_2010.csv")
+
+#joining race and gender variables back in 
+#race_df<- in_2010 %>%
+ # select(c("RACE", "GENDER", "CLIENT_ID"))
+#head(race_df)
+
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2010 <- moved_out_2010 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2010$X.y, moved_out_2010$Y.y, moved_out_2010$X.x, moved_out_2010$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2010 <- moved_out_2010 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2010$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+#head(moved_out_2010)
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2010_summary <- moved_out_2010 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#View(moved_out_2010_summary)
+
+#count of destinations by neighborhood
+moved_out_2010_summary <- moved_out_2010_summary[order(-moved_out_2010_summary$neighborhood_count),]
+##View(moved_out_2010_summary[1:15,])
+top_neighborhoods <- moved_out_2010_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2010_2 <- moved_out_2010 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#View(moved_out_summary_2010_2)
+##View(moved_out_summary_2010[which(moved_out_summary_2010$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2010)
+
+
+```
+moves out of EL in 2007
+```{r}
+#moves out of EL
+out_2007 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2007-12-31" & address_tracts$MOVEOUTDATE >= "2007-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2007 <- out_2007 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(out_2007)
+
+#moves toto other neighborhoods
+in_2007 <- address_tracts[which((address_tracts$MOVEINDATE <= "2008-1-1" & address_tracts$MOVEINDATE >= "2007-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2007 <- in_2007 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(in_2007)
+
+moved_out_2007 <- in_2007 %>% inner_join(out_2007, by = "CLIENT_ID")
+#View(moved_out_2007)
+
+#write.csv(moved_out_2007, file = "destination_addresses_2007.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2007 <- moved_out_2007 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2007$X.y, moved_out_2007$Y.y, moved_out_2007$X.x, moved_out_2007$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2007 <- moved_out_2007 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2007$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2007_summary <- moved_out_2007 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2007_summary <- moved_out_2007_summary[order(-moved_out_2007_summary$neighborhood_count),]
+##View(moved_out_2007_summary[1:15,])
+top_neighborhoods <- moved_out_2007_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2007_2 <- moved_out_2007 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category),disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2)
+##View(moved_out_summary_2007_2[which(moved_out_summary_2007_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2007)
+
+
+
+```
+moves out of EL in 2008
+```{r}
+#moves out of EL
+out_2008 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2008-12-31" & address_tracts$MOVEOUTDATE >= "2008-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2008 <- out_2008 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(out_2008)
+
+#moves toto other neighborhoods
+in_2008 <- address_tracts[which((address_tracts$MOVEINDATE <= "2009-1-1" & address_tracts$MOVEINDATE >= "2008-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2008 <- in_2008 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(in_2008)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2008 <- in_2008 %>% inner_join(out_2008, by = "CLIENT_ID")
+##View(moved_out_2008)
+#write.csv(moved_out_2008, file = "destination_addresses_2008.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2008 <- moved_out_2008 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2008$X.y, moved_out_2008$Y.y, moved_out_2008$X.x, moved_out_2008$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2008 <- moved_out_2008 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2008$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2008_summary <- moved_out_2008 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2008_summary <- moved_out_2008_summary[order(-moved_out_2008_summary$neighborhood_count),]
+##View(moved_out_2008_summary[1:15,])
+top_neighborhoods <- moved_out_2008_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2008_2 <- moved_out_2008 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2008)
+##View(moved_out_summary_2008_2[which(moved_out_summary_2008_2$hood.x %in% top_neighborhoods),])
+
+#View(moved_out_2008)
+
+
+```
+moves out of EL in 2009  #correct
+```{r}
+#moves out of EL
+out_2009 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2009-12-31" & address_tracts$MOVEOUTDATE >= "2009-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2009 <- out_2009 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(out_2009)
+
+#moves toto other neighborhoods
+in_2009 <- address_tracts[which((address_tracts$MOVEINDATE <= "2010-1-1" & address_tracts$MOVEINDATE >= "2009-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2009 <- in_2009 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(in_2009)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2009 <- in_2009 %>% inner_join(out_2009, by = "CLIENT_ID")
+##View(moved_out_2009)
+#write.csv(moved_out_2009, file = "destination_addresses_2009.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2009 <- moved_out_2009 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2009$X.y, moved_out_2009$Y.y, moved_out_2009$X.x, moved_out_2009$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2009 <- moved_out_2009 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2009$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2009_summary_2 <- moved_out_2009 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2009_summary <- moved_out_2009_summary_2[order(-moved_out_2009_summary_2$neighborhood_count),]
+##View(moved_out_2009_summary[1:15,])
+top_neighborhoods <- moved_out_2009_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2009_2 <- moved_out_2009 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2009)
+##View(moved_out_summary_2009[which(moved_out_summary_2009$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2009)
+
+
+
+```
+identifying moves out of EL in 2010
+```{r}
+#moves out of EL
+out_2010 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2010-12-31" & address_tracts$MOVEOUTDATE >= "2010-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2010 <- out_2010 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(out_2010)
+
+#moves toto other neighborhoods
+in_2010 <- address_tracts[which((address_tracts$MOVEINDATE <= "2011-1-1" & address_tracts$MOVEINDATE >= "2010-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2010 <- in_2010 %>% inner_join(DI_2010, by = "GEOID_Num")
+##View(in_2010)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2010 <- in_2010 %>% inner_join(out_2010, by = "CLIENT_ID")
+##View(moved_out_2010)
+#write.csv(moved_out_2010, file = "destination_addresses_2010.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2010 <- moved_out_2010 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2010$X.y, moved_out_2010$Y.y, moved_out_2010$X.x, moved_out_2010$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2010 <- moved_out_2010 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2010$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2010_summary <- moved_out_2010 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2010_summary <- moved_out_2010_summary[order(-moved_out_2010_summary$neighborhood_count),]
+##View(moved_out_2010_summary[1:15,])
+top_neighborhoods <- moved_out_2010_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2010_2 <- moved_out_2010 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2)
+##View(moved_out_summary_2010_2[which(summary_2010_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2010)
+
+
+```
+
+identifying moves out of EL in 2011   #correct
+```{r}
+
+#get 2011 subset from DI_file
+
+DI_2011 <- DI_file[which(DI_file$year == 2011),]
+DI_2011$GEOID_Num <- as.numeric(DI_2011$GEOID)
+
+DI_2011$category[DI_2011$disadvantage_index > 0.0 & DI_2011$disadvantage_index <= .14] = "Low disadvantage"
+DI_2011$category[DI_2011$disadvantage_index > .14 & DI_2011$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2011$category[DI_2011$disadvantage_index > .32 & DI_2011$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2011$category[DI_2011$disadvantage_index > .45 & DI_2011$disadvantage_index <= .63] = "High disadvantage"
+DI_2011$category[DI_2011$disadvantage_index > .63 & DI_2011$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2011$category_num[DI_2011$disadvantage_index > 0.0 & DI_2011$disadvantage_index <= .14] = 1
+DI_2011$category_num[DI_2011$disadvantage_index > .14 & DI_2011$disadvantage_index <= .32] = 2
+DI_2011$category_num[DI_2011$disadvantage_index > .32 & DI_2011$disadvantage_index <= .45] = 3
+DI_2011$category_num[DI_2011$disadvantage_index > .45 & DI_2011$disadvantage_index <= .63] = 4
+DI_2011$category_num[DI_2011$disadvantage_index > .63 & DI_2011$disadvantage_index <= 1.0] = 5
+
+#View(DI_2011)
+
+#moves out of EL
+out_2011 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2011-12-31" & address_tracts$MOVEOUTDATE >= "2011-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2011 <- out_2011 %>% inner_join(DI_2011, by = "GEOID_Num")
+##View(out_2011)
+
+#moves toto other neighborhoods
+in_2011 <- address_tracts[which((address_tracts$MOVEINDATE <= "2012-1-1" & address_tracts$MOVEINDATE >= "2011-01-01" & address_tracts$hood != "East Liberty")), ]
+
+
+in_2011 <- in_2011 %>% inner_join(DI_2011, by = "GEOID_Num")
+#View(in_2011)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2011 <- in_2011 %>% inner_join(out_2011, by = "CLIENT_ID")
+##View(moved_out_2011)
+#write.csv(moved_out_2011, file = "destination_addresses_2011.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2011 <- moved_out_2011 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2011$X.y, moved_out_2011$Y.y, moved_out_2011$X.x, moved_out_2011$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2011 <- moved_out_2011 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2011$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2011_summary <- moved_out_2011 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2011_summary <- moved_out_2011_summary[order(-moved_out_2011_summary$neighborhood_count),]
+##View(moved_out_2011_summary[1:15,])
+top_neighborhoods <- moved_out_2011_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2011_2 <- moved_out_2011 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2011_2)
+###View(moved_out_summary_2011_2[which(moved_out_summary_2011_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2011)
+
+```
+identifying moves out of EL in 2012    #correct
+```{r}
+#get 2012 subset from DI_file
+
+DI_2012 <- DI_file[which(DI_file$year == 2012),]
+DI_2012$GEOID_Num <- as.numeric(DI_2012$GEOID)
+
+DI_2012$category[DI_2012$disadvantage_index > 0.0 & DI_2012$disadvantage_index <= .14] = "Low disadvantage"
+DI_2012$category[DI_2012$disadvantage_index > .14 & DI_2012$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2012$category[DI_2012$disadvantage_index > .32 & DI_2012$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2012$category[DI_2012$disadvantage_index > .45 & DI_2012$disadvantage_index <= .63] = "High disadvantage"
+DI_2012$category[DI_2012$disadvantage_index > .63 & DI_2012$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2012$category_num[DI_2012$disadvantage_index > 0.0 & DI_2012$disadvantage_index <= .14] = 1
+DI_2012$category_num[DI_2012$disadvantage_index > .14 & DI_2012$disadvantage_index <= .32] = 2
+DI_2012$category_num[DI_2012$disadvantage_index > .32 & DI_2012$disadvantage_index <= .45] = 3
+DI_2012$category_num[DI_2012$disadvantage_index > .45 & DI_2012$disadvantage_index <= .63] = 4
+DI_2012$category_num[DI_2012$disadvantage_index > .63 & DI_2012$disadvantage_index <= 1.0] = 5
+
+##View(DI_2012)
+
+#moves out of EL
+out_2012 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2012-12-31" & address_tracts$MOVEOUTDATE >= "2012-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2012 <- out_2012 %>% inner_join(DI_2012, by = "GEOID_Num")
+#View(out_2012)
+
+#moves toto other neighborhoods
+in_2012 <- address_tracts[which((address_tracts$MOVEINDATE <= "2013-1-1" & address_tracts$MOVEINDATE >= "2012-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2012 <- in_2012 %>% inner_join(DI_2012, by = "GEOID_Num")
+#View(in_2012)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2012 <- in_2012 %>% inner_join(out_2012, by = "CLIENT_ID")
+##View(moved_out_2012)
+#write.csv(moved_out_2012, file = "destination_addresses_2012.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2012 <- moved_out_2012 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2012$X.y, moved_out_2012$Y.y, moved_out_2012$X.x, moved_out_2012$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2012 <- moved_out_2012 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2012$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2012_summary <- moved_out_2012 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2012_summary <- moved_out_2012_summary[order(-moved_out_2012_summary$neighborhood_count),]
+#View(moved_out_2012_summary[1:15,])
+top_neighborhoods <- moved_out_2012_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2012_2 <- moved_out_2012 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2012_2)
+#View(moved_out_summary_2012_2[which(moved_out_summary_2012_2$hood.x %in% top_neighborhoods),])
+
+#View(moved_out_2012)
+
+```
+
+identifying moves out of EL in 2013   #correct
+```{r}
+#get 2013 subset from DI_file
+
+DI_2013 <- DI_file[which(DI_file$year == 2013),]
+DI_2013$GEOID_Num <- as.numeric(DI_2013$GEOID)
+
+DI_2013$category[DI_2013$disadvantage_index > 0.0 & DI_2013$disadvantage_index <= .14] = "Low disadvantage"
+DI_2013$category[DI_2013$disadvantage_index > .14 & DI_2013$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2013$category[DI_2013$disadvantage_index > .32 & DI_2013$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2013$category[DI_2013$disadvantage_index > .45 & DI_2013$disadvantage_index <= .63] = "High disadvantage"
+DI_2013$category[DI_2013$disadvantage_index > .63 & DI_2013$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2013$category_num[DI_2013$disadvantage_index > 0.0 & DI_2013$disadvantage_index <= .14] = 1
+DI_2013$category_num[DI_2013$disadvantage_index > .14 & DI_2013$disadvantage_index <= .32] = 2
+DI_2013$category_num[DI_2013$disadvantage_index > .32 & DI_2013$disadvantage_index <= .45] = 3
+DI_2013$category_num[DI_2013$disadvantage_index > .45 & DI_2013$disadvantage_index <= .63] = 4
+DI_2013$category_num[DI_2013$disadvantage_index > .63 & DI_2013$disadvantage_index <= 1.0] = 5
+
+##View(DI_2013)
+
+#moves out of EL
+out_2013 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2013-12-31" & address_tracts$MOVEOUTDATE >= "2013-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2013 <- out_2013 %>% inner_join(DI_2013, by = "GEOID_Num")
+#View(out_2013)
+
+#moves toto other neighborhoods
+in_2013 <- address_tracts[which((address_tracts$MOVEINDATE <= "2014-1-1" & address_tracts$MOVEINDATE >= "2013-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2013 <- in_2013 %>% inner_join(DI_2013, by = "GEOID_Num")
+#View(in_2013)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2013 <- in_2013 %>% inner_join(out_2013, by = "CLIENT_ID")
+#View(moved_out_2013)
+#write.csv(moved_out_2013, file = "destination_addresses_2013.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2013 <- moved_out_2013 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2013$X.y, moved_out_2013$Y.y, moved_out_2013$X.x, moved_out_2013$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2013 <- moved_out_2013 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2013$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2013_summary <- moved_out_2013 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2013_summary <- moved_out_2013_summary[order(-moved_out_2013_summary$neighborhood_count),]
+#View(moved_out_2013_summary[1:15,])
+top_neighborhoods <- moved_out_2013_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2013_2 <- moved_out_2013 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2013_2)
+#View(moved_out_summary_2013_2[which(moved_out_summary_2013_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2013)
+
+```
+identifying moves out of EL in 2014
+```{r}
+#get 2014 subset from DI_file
+
+DI_2014 <- DI_file[which(DI_file$year == 2014),]
+DI_2014$GEOID_Num <- as.numeric(DI_2014$GEOID)
+
+DI_2014$category[DI_2014$disadvantage_index > 0.0 & DI_2014$disadvantage_index <= .14] = "Low disadvantage"
+DI_2014$category[DI_2014$disadvantage_index > .14 & DI_2014$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2014$category[DI_2014$disadvantage_index > .32 & DI_2014$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2014$category[DI_2014$disadvantage_index > .45 & DI_2014$disadvantage_index <= .63] = "High disadvantage"
+DI_2014$category[DI_2014$disadvantage_index > .63 & DI_2014$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2014$category_num[DI_2014$disadvantage_index > 0.0 & DI_2014$disadvantage_index <= .14] = 1
+DI_2014$category_num[DI_2014$disadvantage_index > .14 & DI_2014$disadvantage_index <= .32] = 2
+DI_2014$category_num[DI_2014$disadvantage_index > .32 & DI_2014$disadvantage_index <= .45] = 3
+DI_2014$category_num[DI_2014$disadvantage_index > .45 & DI_2014$disadvantage_index <= .63] = 4
+DI_2014$category_num[DI_2014$disadvantage_index > .63 & DI_2014$disadvantage_index <= 1.0] = 5
+
+##View(DI_2014)
+
+#moves out of EL
+out_2014 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2014-12-31" & address_tracts$MOVEOUTDATE >= "2014-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2014 <- out_2014 %>% inner_join(DI_2014, by = "GEOID_Num")
+##View(out_2014)
+
+#moves toto other neighborhoods
+in_2014 <- address_tracts[which((address_tracts$MOVEINDATE <= "2015-1-1" & address_tracts$MOVEINDATE >= "2014-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2014 <- in_2014 %>% inner_join(DI_2014, by = "GEOID_Num")
+##View(in_2014)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2014 <- in_2014 %>% inner_join(out_2014, by = "CLIENT_ID")
+##View(moved_out_2014)
+#write.csv(moved_out_2014, file = "destination_addresses_2014.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2014 <- moved_out_2014 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2014$X.y, moved_out_2014$Y.y, moved_out_2014$X.x, moved_out_2014$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2014 <- moved_out_2014 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2014$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2014_summary <- moved_out_2014 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2014_summary <- moved_out_2014_summary[order(-moved_out_2014_summary$neighborhood_count),]
+#View(moved_out_2014_summary[1:15,])
+top_neighborhoods <- moved_out_2014_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2014_2 <- moved_out_2014 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2014_2)
+#View(moved_out_summary_2014_2[which(moved_out_summary_2014_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2014)
+```
+identifying moves out of EL in 2015
+```{r}
+#get 2015 subset from DI_file
+
+DI_2015 <- DI_file[which(DI_file$year == 2015),]
+DI_2015$GEOID_Num <- as.numeric(DI_2015$GEOID)
+
+DI_2015$category[DI_2015$disadvantage_index > 0.0 & DI_2015$disadvantage_index <= .14] = "Low disadvantage"
+DI_2015$category[DI_2015$disadvantage_index > .14 & DI_2015$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2015$category[DI_2015$disadvantage_index > .32 & DI_2015$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2015$category[DI_2015$disadvantage_index > .45 & DI_2015$disadvantage_index <= .63] = "High disadvantage"
+DI_2015$category[DI_2015$disadvantage_index > .63 & DI_2015$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2015$category_num[DI_2015$disadvantage_index > 0.0 & DI_2015$disadvantage_index <= .14] = 1
+DI_2015$category_num[DI_2015$disadvantage_index > .14 & DI_2015$disadvantage_index <= .32] = 2
+DI_2015$category_num[DI_2015$disadvantage_index > .32 & DI_2015$disadvantage_index <= .45] = 3
+DI_2015$category_num[DI_2015$disadvantage_index > .45 & DI_2015$disadvantage_index <= .63] = 4
+DI_2015$category_num[DI_2015$disadvantage_index > .63 & DI_2015$disadvantage_index <= 1.0] = 5
+
+##View(DI_2015)
+
+#moves out of EL
+out_2015 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2015-12-31" & address_tracts$MOVEOUTDATE >= "2015-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2015 <- out_2015 %>% inner_join(DI_2015, by = "GEOID_Num")
+##View(out_2015)
+
+#moves toto other neighborhoods
+in_2015 <- address_tracts[which((address_tracts$MOVEINDATE <= "2016-1-1" & address_tracts$MOVEINDATE >= "2015-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2015 <- in_2015 %>% inner_join(DI_2015, by = "GEOID_Num")
+##View(in_2015)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2015 <- in_2015 %>% inner_join(out_2015, by = "CLIENT_ID")
+##View(moved_out_2015)
+#write.csv(moved_out_2015, file = "destination_addresses_2015.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2015 <- moved_out_2015 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2015$X.y, moved_out_2015$Y.y, moved_out_2015$X.x, moved_out_2015$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2015 <- moved_out_2015 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2015$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2015_summary <- moved_out_2015 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2015_summary <- moved_out_2015_summary[order(-moved_out_2015_summary$neighborhood_count),]
+#View(moved_out_2015_summary[1:15,])
+top_neighborhoods <- moved_out_2015_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2015_2 <- moved_out_2015 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2015_2)
+#View(moved_out_summary_2015_2[which(moved_out_summary_2015_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2015)
+
+```
+
+identifying moves out of EL in 2016
+```{r}
+#get 2016 subset from DI_file
+
+DI_2016 <- DI_file[which(DI_file$year == 2016),]
+DI_2016$GEOID_Num <- as.numeric(DI_2016$GEOID)
+
+DI_2016$category[DI_2016$disadvantage_index > 0.0 & DI_2016$disadvantage_index <= .14] = "Low disadvantage"
+DI_2016$category[DI_2016$disadvantage_index > .14 & DI_2016$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2016$category[DI_2016$disadvantage_index > .32 & DI_2016$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2016$category[DI_2016$disadvantage_index > .45 & DI_2016$disadvantage_index <= .63] = "High disadvantage"
+DI_2016$category[DI_2016$disadvantage_index > .63 & DI_2016$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2016$category_num[DI_2016$disadvantage_index > 0.0 & DI_2016$disadvantage_index <= .14] = 1
+DI_2016$category_num[DI_2016$disadvantage_index > .14 & DI_2016$disadvantage_index <= .32] = 2
+DI_2016$category_num[DI_2016$disadvantage_index > .32 & DI_2016$disadvantage_index <= .45] = 3
+DI_2016$category_num[DI_2016$disadvantage_index > .45 & DI_2016$disadvantage_index <= .63] = 4
+DI_2016$category_num[DI_2016$disadvantage_index > .63 & DI_2016$disadvantage_index <= 1.0] = 5
+
+##View(DI_2016)
+
+#moves out of EL
+out_2016 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2016-12-31" & address_tracts$MOVEOUTDATE >= "2016-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2016 <- out_2016 %>% inner_join(DI_2016, by = "GEOID_Num")
+##View(out_2016)
+
+#moves toto other neighborhoods
+in_2016 <- address_tracts[which((address_tracts$MOVEINDATE <= "2017-1-1" & address_tracts$MOVEINDATE >= "2016-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2016 <- in_2016 %>% inner_join(DI_2016, by = "GEOID_Num")
+##View(in_2016)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2016 <- in_2016 %>% inner_join(out_2016, by = "CLIENT_ID")
+##View(moved_out_2016)
+#write.csv(moved_out_2016, file = "destination_addresses_2016.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2016 <- moved_out_2016 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2016$X.y, moved_out_2016$Y.y, moved_out_2016$X.x, moved_out_2016$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2016 <- moved_out_2016 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2016$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2016_summary <- moved_out_2016 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2016_summary <- moved_out_2016_summary[order(-moved_out_2016_summary$neighborhood_count),]
+#View(moved_out_2016_summary[1:15,])
+top_neighborhoods <- moved_out_2016_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2016_2 <- moved_out_2016 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2016_2)
+#View(moved_out_summary_2016_2[which(moved_out_summary_2016_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2016)
+
+```
+
+identifying moves out of EL in 2017
+```{r}
+#get 2017 subset from DI_file
+
+DI_2017 <- DI_file[which(DI_file$year == 2017),]
+DI_2017$GEOID_Num <- as.numeric(DI_2017$GEOID)
+
+DI_2017$category[DI_2017$disadvantage_index > 0.0 & DI_2017$disadvantage_index <= .14] = "Low disadvantage"
+DI_2017$category[DI_2017$disadvantage_index > .14 & DI_2017$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2017$category[DI_2017$disadvantage_index > .32 & DI_2017$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2017$category[DI_2017$disadvantage_index > .45 & DI_2017$disadvantage_index <= .63] = "High disadvantage"
+DI_2017$category[DI_2017$disadvantage_index > .63 & DI_2017$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2017$category_num[DI_2017$disadvantage_index > 0.0 & DI_2017$disadvantage_index <= .14] = 1
+DI_2017$category_num[DI_2017$disadvantage_index > .14 & DI_2017$disadvantage_index <= .32] = 2
+DI_2017$category_num[DI_2017$disadvantage_index > .32 & DI_2017$disadvantage_index <= .45] = 3
+DI_2017$category_num[DI_2017$disadvantage_index > .45 & DI_2017$disadvantage_index <= .63] = 4
+DI_2017$category_num[DI_2017$disadvantage_index > .63 & DI_2017$disadvantage_index <= 1.0] = 5
+
+##View(DI_2017)
+
+#moves out of EL
+out_2017 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2017-12-31" & address_tracts$MOVEOUTDATE >= "2017-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2017 <- out_2017 %>% inner_join(DI_2017, by = "GEOID_Num")
+#View(out_2017)
+
+#moves toto other neighborhoods
+in_2017 <- address_tracts[which((address_tracts$MOVEINDATE <= "2018-1-1" & address_tracts$MOVEINDATE >= "2017-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2017 <- in_2017 %>% inner_join(DI_2017, by = "GEOID_Num")
+##View(in_2017)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2017 <- in_2017 %>% inner_join(out_2017, by = "CLIENT_ID")
+##View(moved_out_2017)
+#write.csv(moved_out_2017, file = "destination_addresses_2017.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2017 <- moved_out_2017 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2017$X.y, moved_out_2017$Y.y, moved_out_2017$X.x, moved_out_2017$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2017 <- moved_out_2017 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2017$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2017_summary <- moved_out_2017 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2017_summary <- moved_out_2017_summary[order(-moved_out_2017_summary$neighborhood_count),]
+#View(moved_out_2017_summary[1:15,])
+top_neighborhoods <- moved_out_2017_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2017_2 <- moved_out_2017 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2017_2)
+#View(moved_out_summary_2017_2[which(moved_out_summary_2017_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2011)
+
+
+```
+identifying moves out of EL in 2018    #all chunks are correct to here
+```{r}
+#get 2018 subset from DI_file
+
+DI_2018 <- DI_file[which(DI_file$year == 2018),]
+DI_2018$GEOID_Num <- as.numeric(DI_2018$GEOID)
+
+DI_2018$category[DI_2018$disadvantage_index > 0.0 & DI_2018$disadvantage_index <= .14] = "Low disadvantage"
+DI_2018$category[DI_2018$disadvantage_index > .14 & DI_2018$disadvantage_index <= .32] = "Moderate disadvantage"
+DI_2018$category[DI_2018$disadvantage_index > .32 & DI_2018$disadvantage_index <= .45] = "Very disadvantaged"
+DI_2018$category[DI_2018$disadvantage_index > .45 & DI_2018$disadvantage_index <= .63] = "High disadvantage"
+DI_2018$category[DI_2018$disadvantage_index > .63 & DI_2018$disadvantage_index <= 1.0] = "Extreme disadvantage"
+
+DI_2018$category_num[DI_2018$disadvantage_index > 0.0 & DI_2018$disadvantage_index <= .14] = 1
+DI_2018$category_num[DI_2018$disadvantage_index > .14 & DI_2018$disadvantage_index <= .32] = 2
+DI_2018$category_num[DI_2018$disadvantage_index > .32 & DI_2018$disadvantage_index <= .45] = 3
+DI_2018$category_num[DI_2018$disadvantage_index > .45 & DI_2018$disadvantage_index <= .63] = 4
+DI_2018$category_num[DI_2018$disadvantage_index > .63 & DI_2018$disadvantage_index <= 1.0] = 5
+
+##View(DI_2018)
+
+#moves out of EL
+out_2018 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2018-12-31" & address_tracts$MOVEOUTDATE >= "2018-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2018 <- out_2018 %>% inner_join(DI_2018, by = "GEOID_Num")
+#View(out_2018)
+
+#moves toto other neighborhoods
+in_2018 <- address_tracts[which((address_tracts$MOVEINDATE <= "2019-1-1" & address_tracts$MOVEINDATE >= "2018-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2018 <- in_2018 %>% inner_join(DI_2018, by = "GEOID_Num")
+##View(in_2018)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2018 <- in_2018 %>% inner_join(out_2018, by = "CLIENT_ID")
+##View(moved_out_2018)
+#write.csv(moved_out_2018, file = "destination_addresses_2018.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2018 <- moved_out_2018 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2018$X.y, moved_out_2018$Y.y, moved_out_2018$X.x, moved_out_2018$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2018 <- moved_out_2018 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2018$NAME10.y == "1113", "northern", "southern"), absolute_change = disadvantage_index.y - disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2018_summary <- moved_out_2018 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2018_summary <- moved_out_2018_summary[order(-moved_out_2018_summary$neighborhood_count),]
+#View(moved_out_2018_summary[1:15,])
+top_neighborhoods <- moved_out_2018_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2018_2 <- moved_out_2018 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2018_2)
+#View(moved_out_summary_2018_2[which(moved_out_summary_2018_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2018)
+
+
+duplicate_in<-in_2018%>%
+  group_by(CLIENT_ID)%>%
+  summarize(count=n())%>%
+  ungroup()%>%
+  filter(count>1)
+duplicate_out<-out_2018%>%
+  filter(CLIENT_ID%in%duplicate_in$CLIENT_ID)
+duplicate_in2<-in_2018%>%
+  filter(CLIENT_ID%in%duplicate_out$CLIENT_ID)
+```
+
+```{r}
+
+#first data set
+DI_2000 <- read.csv("DI_2000.csv", header = TRUE)
+#nrow(DI_2000)   #175
+#head(DI_2000)
+
+DI_2000 <- DI_2000 %>%
+  select("tl_2010_42003_tract00_GEOID__13", "census_data_2000_full_Disadv_35")
+
+
+DI_2000 <- DI_2000 %>% rename(GEOID_Num = tl_2010_42003_tract00_GEOID__13, Disadvantage_index = census_data_2000_full_Disadv_35)
+
+
+DI_2000$category[DI_2000$Disadvantage_index > 0.0 & DI_2000$Disadvantage_index <= .14] = "Low Disadvantage"
+DI_2000$category[DI_2000$Disadvantage_index > .14 & DI_2000$Disadvantage_index <= .32] = "Moderate Disadvantage"
+DI_2000$category[DI_2000$Disadvantage_index > .32 & DI_2000$Disadvantage_index <= .45] = "Very Disadvantaged"
+DI_2000$category[DI_2000$Disadvantage_index > .45 & DI_2000$Disadvantage_index <= .63] = "High Disadvantage"
+DI_2000$category[DI_2000$Disadvantage_index > .63 & DI_2000$Disadvantage_index <= 1.0] = "Extreme Disadvantage"
+
+DI_2000$category_num[DI_2000$Disadvantage_index > 0.0 & DI_2000$Disadvantage_index <= .14] = 1
+DI_2000$category_num[DI_2000$Disadvantage_index > .14 & DI_2000$Disadvantage_index <= .32] = 2
+DI_2000$category_num[DI_2000$Disadvantage_index > .32 & DI_2000$Disadvantage_index <= .45] = 3
+DI_2000$category_num[DI_2000$Disadvantage_index > .45 & DI_2000$Disadvantage_index <= .63] = 4
+DI_2000$category_num[DI_2000$Disadvantage_index > .63 & DI_2000$Disadvantage_index <= 1.0] = 5
+#DI_2000$category[1:10]
+#works
+##View(DI_2000)
+```
+
+
+identifying moves out of EL in 2003
+```{r}
+#moves out of EL
+out_2003 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2003-12-31" & address_tracts$MOVEOUTDATE >= "2003-01-01" & address_tracts$hood == "East Liberty"),] 
+#nrow(out_2003)
+
+out_2003 <- out_2003 %>% inner_join(DI_2000, by = "GEOID_Num")
+#nrow(out_2003)
+
+#moves toto other neighborhoods
+in_2003 <- address_tracts[which((address_tracts$MOVEINDATE <= "2004-1-1" & address_tracts$MOVEINDATE >= "2003-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2003 <- in_2003 %>% inner_join(DI_2000, by = "GEOID_Num")
+##View(in_2003)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2003 <- in_2003 %>% inner_join(out_2003, by = "CLIENT_ID")
+##View(moved_out_2003)
+#write.csv(moved_out_2003, file = "destination_addresses_2003.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2003 <- moved_out_2003 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2003$X.y, moved_out_2003$Y.y, moved_out_2003$X.x, moved_out_2003$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2003 <- moved_out_2003 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2003$NAME10.y == "1113", "northern", "southern"), absolute_change = Disadvantage_index.y - Disadvantage_index.x)
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2003_summary <- moved_out_2003 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2003_summary <- moved_out_2003_summary[order(-moved_out_2003_summary$neighborhood_count),]
+#View(moved_out_2003_summary[1:15,])
+top_neighborhoods <- moved_out_2003_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2003_2 <- moved_out_2003 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2003_2)
+#View(moved_out_summary_2003_2[which(moved_out_summary_2003_2$hood.x %in% top_neighborhoods),])
+
+```
+
+identifying moves out of EL in 2004
+```{r}
+#moves out of EL
+out_2004 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2004-12-31" & address_tracts$MOVEOUTDATE >= "2004-01-01" & address_tracts$hood == "East Liberty"),] 
+#nrow(out_2004)
+
+out_2004 <- out_2004 %>% inner_join(DI_2000, by = "GEOID_Num")
+
+#moves toto other neighborhoods
+in_2004 <- address_tracts[which((address_tracts$MOVEINDATE <= "2005-1-1" & address_tracts$MOVEINDATE >= "2004-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2004 <- in_2004 %>% inner_join(DI_2000, by = "GEOID_Num")
+##View(in_2004)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2004 <- in_2004 %>% inner_join(out_2004, by = "CLIENT_ID")
+#View(moved_out_2004)
+#write.csv(moved_out_2004, file = "destination_addresses_2004.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2004 <- moved_out_2004 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2004$X.y, moved_out_2004$Y.y, moved_out_2004$X.x, moved_out_2004$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2004 <- moved_out_2004 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2004$NAME10.y == "1113", "northern", "southern"), absolute_change = Disadvantage_index.y - Disadvantage_index.x)
+
+#remove duplicates based on visual inspection 
+moved_out_2004 <- moved_out_2004[-c(34,5,31),]
+#View(moved_out_2004)
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2004_summary <- moved_out_2004 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2004_summary <- moved_out_2004_summary[order(-moved_out_2004_summary$neighborhood_count),]
+#View(moved_out_2004_summary[1:15,])
+top_neighborhoods <- moved_out_2004_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2004_2 <- moved_out_2004 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#View(moved_out_summary_2004_2)
+#View(moved_out_summary_2004_2[which(moved_out_summary_2004_2$hood.x %in% top_neighborhoods),])
+
+#View(moved_out_2004)
+
+```
+moved out of EL in 2005
+```{r}
+#moves out of EL
+out_2005 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2005-12-31" & address_tracts$MOVEOUTDATE >= "2005-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2005 <- out_2005 %>% inner_join(DI_2000, by = "GEOID_Num")
+
+#moves toto other neighborhoods
+in_2005 <- address_tracts[which((address_tracts$MOVEINDATE <= "2006-1-1" & address_tracts$MOVEINDATE >= "2005-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2005 <- in_2005 %>% inner_join(DI_2000, by = "GEOID_Num")
+##View(in_2005)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2005 <- in_2005 %>% inner_join(out_2005, by = "CLIENT_ID")
+##View(moved_out_2005)
+#write.csv(moved_out_2005, file = "destination_addresses_2005.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2005 <- moved_out_2005 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2005$X.y, moved_out_2005$Y.y, moved_out_2005$X.x, moved_out_2005$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2005 <- moved_out_2005 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2005$NAME10.y == "1113", "northern", "southern"), absolute_change = Disadvantage_index.y - Disadvantage_index.x)
+
+#View(moved_out_2005)
+
+
+#remove duplicates based on visual inspection 
+moved_out_2005 <- moved_out_2005[-c(3),]
+
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2005_summary <- moved_out_2005 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2005_summary <- moved_out_2005_summary[order(-moved_out_2005_summary$neighborhood_count),]
+#View(moved_out_2005_summary[1:15,])
+top_neighborhoods <- moved_out_2005_summary$hood.x[1:15]
+#counts by disadvantage category
+    
+moved_out_summary_2005_2 <- moved_out_2005 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+##View(moved_out_summary_2005_2)
+#View(moved_out_summary_2005_2[which(moved_out_summary_2005_2$hood.x %in% top_neighborhoods),])
+
+#View(moved_out_2005)
+```
+moved out of EL in 2006
+```{r}
+
+#moves out of EL
+out_2006 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2006-12-31" & address_tracts$MOVEOUTDATE >= "2006-01-01" & address_tracts$hood == "East Liberty"),] 
+
+out_2006 <- out_2006 %>% inner_join(DI_2000, by = "GEOID_Num")
+
+#moves toto other neighborhoods
+in_2006 <- address_tracts[which((address_tracts$MOVEINDATE <= "2007-1-1" & address_tracts$MOVEINDATE >= "2006-01-01" & address_tracts$hood != "East Liberty")), ]
+
+in_2006 <- in_2006 %>% inner_join(DI_2000, by = "GEOID_Num")
+##View(in_2006)
+
+#identify moves out from EL to other neighborhoods
+moved_out_2006 <- in_2006 %>% inner_join(out_2006, by = "CLIENT_ID")
+##View(moved_out_2006)
+#write.csv(moved_out_2006, file = "destination_addresses_2006.csv")
+###########
+
+#calculate distance in miles between pairs of origin/destination points 
+moved_out_2006 <- moved_out_2006 %>%
+  mutate(distance = mapply(get_geo_distance, moved_out_2006$X.y, moved_out_2006$Y.y, moved_out_2006$X.x, moved_out_2006$Y.x, units = "miles"))
+
+#create column identify the relative advantage for each move and each identifier for the EL census TRACTCE10s
+moved_out_2006 <- moved_out_2006 %>%
+  mutate(move_category = ifelse(category_num.y == category_num.x, "comparable", ifelse(category_num.y < category_num.x, "move_to_disadvantage", "move_to_advantage")), EL_TRACT = ifelse(moved_out_2006$NAME10.y == "1113", "northern", "southern"), absolute_change = Disadvantage_index.y - Disadvantage_index.x)
+
+#remove duplicates based on visual inspection 
+moved_out_2006 <- moved_out_2006[-c(21,26),]
+#View(moved_out_2006)
+
+#need to calculate multiple statistics for each subset of movers but can't get data reshaped into one dataframe--using two dataframe instead
+moved_out_2006_summary <- moved_out_2006 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(neighborhood_count = length(hood.x), average_distance = mean(distance), average_disadvantage = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#count of destinations by neighborhood
+moved_out_2006_summary <- moved_out_2006_summary[order(-moved_out_2006_summary$neighborhood_count),]
+#View(moved_out_2006_summary[1:15,])
+top_neighborhoods <- moved_out_2006_summary$hood.x[1:15]
+#counts by disadvantage category
+#View(moved_out_2006_summary)
+
+    
+moved_out_summary_2006_2 <- moved_out_2006 %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category), disadvantage_change = mean(absolute_change))%>%
+  dplyr::ungroup()
+
+#View(moved_out_summary_2006_2)
+
+
+#View(moved_out_summary_2006_2[which(moved_out_summary_2006_2$hood.x %in% top_neighborhoods),])
+
+##View(moved_out_2006)
+
+```
+
+
+total moves to neighborhoods statistics 
+```{r, fig.width=10}
+#merge summary DFs and group_by
+moved_out_2003_summary$year <- 2003
+moved_out_2004_summary$year <- 2004
+moved_out_2005_summary$year <- 2005
+moved_out_2006_summary$year <- 2006
+moved_out_2007_summary$year <- 2007
+moved_out_2008_summary$year <- 2008
+moved_out_2009_summary$year <- 2009
+moved_out_2010_summary$year <- 2010
+moved_out_2011_summary$year <- 2011
+moved_out_2012_summary$year <- 2012
+moved_out_2013_summary$year <- 2013
+moved_out_2014_summary$year <- 2014
+moved_out_2015_summary$year <- 2015
+moved_out_2016_summary$year <- 2016
+moved_out_2017_summary$year <- 2017
+moved_out_2018_summary$year <- 2018
+
+
+study_period_neighborhoods <- rbind(moved_out_2003_summary, moved_out_2004_summary, moved_out_2005_summary, moved_out_2006_summary, moved_out_2007_summary, moved_out_2008_summary, moved_out_2009_summary,moved_out_2010_summary, moved_out_2011_summary, moved_out_2012_summary, moved_out_2013_summary, moved_out_2014_summary, moved_out_2015_summary, moved_out_2016_summary, moved_out_2017_summary, moved_out_2018_summary)
+
+study_neighborhood_totals <- study_period_neighborhoods %>%
+  ungroup()%>%
+  dplyr::group_by(hood.x)%>%
+  dplyr::summarize(total_moves_to_neighborhood = sum(neighborhood_count))%>%
+  dplyr::ungroup()
+
+study_neighborhood_totals <- study_neighborhood_totals[order(-study_neighborhood_totals$total_moves_to_neighborhood),]
+
+#write.csv(study_neighborhood_totals, file = "neighborhood_totals.csv")
+
+study_neighborhood_totals %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+
+#head(study_period_neighborhoods)
+
+# top_7 <- study_period_neighborhoods[which(study_period_neighborhoods$hood.x %in% c("Garfield", "Highland Park", "Lincoln-Lemington-Belmar", "Larimer", "Bloomfield", "Upper Lawrenceville", "Homewood South")),]
+# 
+# head(top_7)
+# 
+# 
+# top_7_summary <- top_7 %>%
+#   ungroup()%>%
+#   dplyr::group_by(year, hood.x)%>%
+#   dplyr::summarize(disadvantage = mean(average_disadvantage))%>%
+#   dplyr::ungroup()
+
+#View(top_7_summary)
+#class(top_7_summary$hood.x)   #factor
+
+#head(top_7_summary)
+# 
+# ggplot() + geom_line(data = top_7_summary, aes(x = year, y = moves_per_year, color = hood.x, size = 1, alpha = .25)) +
+#    scale_y_discrete("Moves Per Year", limits = c("1", "2", "3", "4","5","6", "7", "8","9", "10", "11", "12")) +
+#    scale_fill_hue(l=40) +
+#    theme(legend.position = "bottom") +
+#    theme(legend.key.size = unit(2,"line"))
+# 
+
+# ggplot() + geom_line(data = top_7_summary, aes(x = year, y = disadvantage, color = hood.x, size = 1, alpha = .25)) +
+#   # scale_y_discrete("Moves Per Year") +
+#    scale_fill_hue(l=40) +
+#    theme(legend.position = "bottom") +
+#    theme(legend.key.size = unit(2,"line"))
+# 
+# 
+# 
+# #+ scale_x_discrete(limits=c("Garfield", "Highland Park", "Lincoln-Lemington_Belman", "Larimer", "Bloomfield", "Upper Lawrenceville", "Homewood South"))
+# 
+# 
+# ggplot() + geom_line(data = top_7_summary, aes(x = year, y = moves_per_year, color = hood.x, size = 1)) + 
+#   scale_y_discrete("Moves Per Year", limits = c("1", "2", "3", "4","5","6", "7", "8","9", "10", "11", "12")) + 
+#   facet_wrap(~hood.x) +
+#   scale_fill_hue(l=40)
+
+```
+total moves to top 7 year over year
+```{r}
+
+# top_7_total_moves_per_year <- top_7_summary %>%
+#    ungroup()%>%
+#   dplyr::group_by(year)%>%
+#   dplyr::summarize(total_moves_per_year = sum(moves_per_year))%>%
+#   dplyr::ungroup()
+# 
+# 
+# #View(top_7_total_moves_per_year)
+# 
+# top_7_total_moves_per_year <- ggplot(top_7_total_moves_per_year, aes(x = year, y = total_moves_per_year))+
+#   geom_line(color = "Blue")
+# 
+# top_7_total_moves_per_year
+
+
+```
+all destinations--total moves per year
+```{r}
+study_period_total_moves_per_year <- study_period_neighborhoods %>%
+   ungroup()%>%
+  dplyr::group_by(year)%>%
+  dplyr::summarize(total_moves_per_year = sum(neighborhood_count))%>%
+  dplyr::ungroup()
+
+
+#View(study_period_total_moves_per_year)
+
+study_period_total_moves_per_year_plot <- ggplot(study_period_total_moves_per_year, aes(x = year, y = total_moves_per_year))+
+  geom_line(color = "Blue", size = 2)+
+  xlab("") +
+  ylab("Total Moves Per Year")
+  
+
+study_period_total_moves_per_year_plot
+
+
+```
+
+lookng at move comparabilty
+```{r}
+moved_out_summary_2003_2$year <- 2003
+moved_out_summary_2004_2$year <- 2004
+moved_out_summary_2005_2$year <- 2005
+moved_out_summary_2006_2$year <- 2006
+moved_out_summary_2007_2$year <- 2007
+moved_out_summary_2008_2$year <- 2008
+moved_out_summary_2009_2$year <- 2009
+moved_out_summary_2010_2$year <- 2010
+moved_out_summary_2011_2$year <- 2011
+moved_out_summary_2012_2$year <- 2012
+moved_out_summary_2013_2$year <- 2013
+moved_out_summary_2014_2$year <- 2014
+moved_out_summary_2015_2$year <- 2015
+moved_out_summary_2016_2$year <- 2016
+moved_out_summary_2017_2$year <- 2017
+moved_out_summary_2018_2$year <- 2018
+
+
+all_moves <- rbind(moved_out_summary_2003_2, moved_out_summary_2004_2, moved_out_summary_2005_2, moved_out_summary_2006_2, moved_out_summary_2007_2, moved_out_summary_2008_2, moved_out_summary_2009_2, moved_out_summary_2010_2, moved_out_summary_2011_2, moved_out_summary_2012_2, moved_out_summary_2013_2, moved_out_summary_2014_2, moved_out_summary_2015_2, moved_out_summary_2016_2, moved_out_summary_2017_2, moved_out_summary_2018_2)
+
+move_cateogry_totals <- all_moves %>%
+  ungroup()%>%
+  dplyr::group_by(move_category)%>%
+  dplyr::summarize(moves_by_type = sum(category_count))%>%
+  dplyr::ungroup()
+
+#move_cateogry_totals
+
+total_moves <- sum(move_cateogry_totals$moves_by_type)
+#total_moves   #works
+
+move_cateogry_totals$percentage_of_moves_by_type <- round(move_cateogry_totals$moves_by_type/total_moves*100,0)
+#move_cateogry_totals
+
+move_cateogry_totals <- move_cateogry_totals[order(-move_cateogry_totals$percentage_of_moves_by_type),]
+
+#kable(move_cateogry_totals, format = "markdown")
+
+move_cateogry_totals %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left") %>%
+  #column_spec(2, bold = T) %>%
+  row_spec(1:3, bold = T)
+
+
+```
+look at average distance traveled (across moves to all neighborhoods) for year bins 
+```{r,fig.height=4}
+
+
+average_2003 <- mean(moved_out_2003_summary$average_distance)
+average_2004 <- mean(moved_out_2004_summary$average_distance)
+average_2005 <- mean(moved_out_2005_summary$average_distance)
+average_2006 <- mean(moved_out_2006_summary$average_distance)
+average_2007 <- mean(moved_out_2007_summary$average_distance)
+average_2008 <- mean(moved_out_2008_summary$average_distance)
+average_2009 <- mean(moved_out_2009_summary$average_distance)
+average_2010 <- mean(moved_out_2010_summary$average_distance)
+average_2011 <- mean(moved_out_2011_summary$average_distance)
+average_2012 <- mean(moved_out_2012_summary$average_distance)
+average_2013 <- mean(moved_out_2013_summary$average_distance)
+average_2014 <- mean(moved_out_2014_summary$average_distance)
+average_2015 <- mean(moved_out_2015_summary$average_distance)
+average_2016 <- mean(moved_out_2016_summary$average_distance)
+average_2017 <- mean(moved_out_2017_summary$average_distance)
+average_2018 <- mean(moved_out_2018_summary$average_distance)
+
+distances <- as.data.frame(rbind(average_2003, average_2004, average_2005, average_2006, average_2007, average_2008, average_2009, average_2010, average_2011, average_2012, average_2013, average_2014, average_2015, average_2016, average_2017, average_2018))
+
+#mean(distances$V1)
+
+distances$year <- 2003:2018
+colnames(distances)[1] <- "distance"
+
+#distances$year <- as.factor(distances$year)
+
+#distances$year[1:10]
+#install.packages("ggplot2", dependencies = TRUE)
+#library(ggplot2)
+#library(tidyverse)
+
+# line_plot_distances <- ggplot(distances, aes(x = year, y = distance))+
+#     geom_point()+
+#     geom_smooth(method='lm', se = FALSE, color = "blue") +
+# #    xlab("")+
+#     ylab("Distance in miles")+
+#     ylim(1.5,5) +
+#    # xlim(2003, 2018)+
+#     theme_bw()+
+#     scale_x_discrete(name ="Years", breaks=c(2003,2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,2012, 2013, 2014, 2015, 2016, 2017,2018, labels = "2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018"))
+# 
+# line_plot_distances
+
+
+# line_plot_distances_2 <- ggplot(distances, aes(x = year, y = distance))+
+#     geom_point()+
+#     geom_smooth(method='lm', se = FALSE, color = "blue") +
+# #    xlab("")+
+#     ylab("Distance in miles")+
+#     ylim(1.5,5) +
+#    # xlim(2003, 2018)+
+#     theme_bw()+
+#     scale_x_discrete(name ="Years", breaks=c(2003,2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,2012, 2013, 2014, 2015, 2016, 2017,2018, labels = "2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018"))
+
+#second graph 
+
+#distances$year <- as.numeric(as.character(distances$year))
+
+# line_plot_distances_2 <- ggplot(distances, aes(x = year, y = distance))+
+#     geom_point()+
+#     geom_smooth(method='lm', se = FALSE, color = "blue") +
+# #    xlab("")+
+#     ylab("Distance in miles")+
+#     ylim(1.5,5) +
+#    # xlim(2003, 2018)+
+#     theme_bw()+
+#     scale_x_discrete(name ="Years", breaks=c(2003,2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,2012, 2013, 2014, 2015, 2016, 2017,2018, labels = c("2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018")))
+# 
+# line_plot_distances_2
+
+
+#testing absolute disadvantage
+# line_plot_disadvantage <- ggplot(distances, aes(x = year, y = distance))+
+#     geom_point()+
+#     geom_smooth(method='lm', se = FALSE, color = "blue") +
+# #    xlab("")+
+#     ylab("Distance in miles")+
+#     ylim(1.5,5) +
+#    # xlim(2003, 2018)+
+#     theme_bw()+
+#     scale_x_discrete(name ="Years", breaks=c(2003,2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011,2012, 2013, 2014, 2015, 2016, 2017,2018, labels = c("2003", "2004", "2005", "2006", "2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018")))
+
+```
+
+looking at move category by year
+```{r, fig.width=10}
+#head(all_moves)
+
+
+move_category_summed_year <- all_moves %>%
+  ungroup() %>%
+  dplyr::group_by(year, move_category)%>%
+  dplyr::summarize(total_for_category = sum(category_count))%>%
+  dplyr::ungroup()
+
+
+move_category_summed_year
+
+#faceted bar plot
+ggplot(move_category_summed_year, aes(fill=move_category, y=total_for_category, x=year)) + 
+    geom_bar(position="dodge", stat="identity")+
+    xlab("")+
+    ylab("Total for Category")+
+    facet_grid(~move_category)+
+    scale_fill_hue(l=40)
+
+
+#grouped bar plot
+ggplot(move_category_summed_year, aes(fill=move_category, y=total_for_category, x=year)) + 
+    geom_bar(position="dodge", stat="identity")+
+    xlab("")+
+    ylab("Total for Category")+
+    scale_fill_hue(l=40)
+ 
+
+#works but doesn't look good
+#ggplot(move_category_summed_year, aes(x=year, y = total_for_category, color = move_category)) + 
+#  geom_line() + facet_wrap(~move_category)
+
+```
+
+looking at move categories by race
+```{r}
+#View(moved_out_2003)
+
+moved_out_2003$year <- 2003
+moved_out_2004$year <- 2004
+moved_out_2005$year <- 2005
+moved_out_2006$year <- 2006
+moved_out_2007$year <- 2007
+moved_out_2008$year <- 2008
+moved_out_2009$year <- 2009
+moved_out_2010$year <- 2010
+moved_out_2011$year <- 2011
+moved_out_2012$year <- 2012
+moved_out_2013$year <- 2013
+moved_out_2014$year <- 2014
+moved_out_2015$year <- 2015
+moved_out_2016$year <- 2016
+moved_out_2017$year <- 2017
+moved_out_2018$year <- 2018
+
+moved_out_2003_short <- moved_out_2003 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2004_short <- moved_out_2004 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2005_short <- moved_out_2005 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2006_short <- moved_out_2006 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2007_short <- moved_out_2007 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2008_short <- moved_out_2008 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2009_short <- moved_out_2009 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2010_short <- moved_out_2010 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2011_short <- moved_out_2011 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2012_short <- moved_out_2012 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2013_short <- moved_out_2013 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2014_short <- moved_out_2014 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2015_short <- moved_out_2015 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2016_short <- moved_out_2016 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2017_short <- moved_out_2017 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+moved_out_2018_short <- moved_out_2018 %>% select(c("move_category", "distance", "RACE.x", "GENDER.x", "hood.x", "year", "absolute_change", "EL_TRACT"))
+
+
+move_category_race <- rbind(moved_out_2003_short,moved_out_2004_short, moved_out_2005_short, moved_out_2006_short, moved_out_2007_short, moved_out_2008_short, moved_out_2009_short, moved_out_2010_short, moved_out_2011_short, moved_out_2012_short, moved_out_2013_short, moved_out_2014_short, moved_out_2015_short, moved_out_2016_short, moved_out_2017_short, moved_out_2018_short)
+
+
+move_category_race_summmary <- move_category_race %>%
+  ungroup()%>%
+  dplyr::group_by(RACE.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category))%>%
+  dplyr::ungroup()
+
+#move_category_race_summmary
+View(move_category_race)
+```
+
+```{r}
+#calculating mean distance for moves
+new_distance <- mean(move_category_race$distance)
+#new_distance
+
+#mean(new_distance_df$distance[which(new_distance_df$year == 2003)],)
+
+new_distance_df <- move_category_race %>% select(c("year", "distance"))
+#nrow(new_distance_df)
+
+#plotting mean distance for moves
+line_plot_distances <- ggplot(new_distance_df, aes(x = year, y = distance))+
+    geom_point()+
+    geom_smooth(method='lm', se = FALSE, color = "blue") +
+    xlab("")+
+    ylab("Distance in miles")+
+    ylim(1.5,5) +
+   # xlim(2003, 2018)+
+    theme_bw()
+#    abline(mod1)
+
+line_plot_distances
+
+
+mod1 <- lm(move_category_race$distance~ move_category_race$year)
+summary(mod1)
+
+#plotting residuals of linear model
+# resid <- mod1$residuals
+# fitted <- mod1$fitted.values
+# 
+# tibble(resid = resid, fitted = fitted) %>%
+# ggplot(aes(x = fitted, y = resid)) +
+# geom_point() +
+# geom_hline(yintercept = 0, col = 'red')
+# 
+
+
+```
+
+
+```{r}
+#View(move_category_race)  #now includes absolute disadvantage
+#these values are based on aggregated data
+move_absolute_change <- move_category_race 
+
+line_plot_absolute_disadvantage_2 <- ggplot(move_absolute_change, aes(x = year, y = absolute_change))+
+    geom_point()+
+    geom_smooth(method='lm', se = FALSE, color = "blue") +
+    xlab("")+
+    ylab("Change in Disadvantage Score")+
+    #ylim(1.5,5) +
+   # xlim(2003, 2018)+
+    theme_bw()
+#    abline(mod1)
+
+line_plot_absolute_disadvantage_2
+
+mod3 <- lm(move_absolute_change$absolute_change~ move_absolute_change$year)
+summary(mod3)
+
+
+#head(move_absolute_change)
+
+```
+
+```{r}
+#t-test for first and second halves of the study period
+move_category_race$group <- ifelse(move_category_race$year >= 2003 & move_category_race$year <= 2010, 0, 1)
+#View(move_category_race)   worked
+#group 0 is the year of 2003 - 2010 (inclusive); group 1 is the years of 2011 - 2018 (inclusive)
+
+significance_test <- t.test(data = move_category_race, absolute_change ~ group)
+significance_test
+
+
+#t-test for change in distance
+distance_significance_test <- t.test(data = move_category_race, distance ~ group)
+distance_significance_test
+```
+
+
+
+
+
+general race and gender stats
+```{r}
+prop.table(table(move_category_race$RACE))
+table(move_category_race$RACE)
+prop.table(table(move_category_race$GENDER.x))
+table(move_category_race$GENDER.x)
+prop.table(table(move_category_race$GENDER, move_category_race$RACE.x))
+prop.table(table(move_category_race$move_category, move_category_race$RACE.x))
+prop.table(table(move_category_race$GENDER.x, move_category_race$move_category))
+
+#needs an intermediate step 
+#prop.table(table(move_category_race$GENDER.x, move_category_race$move_category))
+
+#first_race <- table(move_category_race$move_category, move_category_race$RACE.x)
+#second_race <- scale(first, FALSE, colSums(first))*100
+#second_race  
+
+```
+
+grouped barplots for move categories separated by gender--females
+```{r}
+move_category_race_female <- move_category_race[which(move_category_race$GENDER.x == "Female"),]
+prop.table(table(move_category_race_female$move_category))
+
+move_category_race_female_summmary <- move_category_race_female %>%
+  ungroup()%>%
+  dplyr::group_by(RACE.x, move_category)%>%
+  dplyr::summarize(category_count = length(move_category))%>%
+  dplyr::ungroup()
+
+move_category_race_female_summary <- move_category_race_female_summmary[which(move_category_race_female_summmary$RACE.x %in% c("Black/African American", "White")),]
+
+move_category_race_female_summary
+
+
+#grouped bar plot for Black and White female movers
+test <- ggplot(move_category_race_female_summmary, aes(fill=RACE.x, y=category_count, x=move_category)) + 
+    geom_bar(position="dodge", stat="identity")+
+    xlab("")+
+    ylab("Total for Category")
+
+test
+
+
+test_2 <- ggplot(move_category_race_female_summmary, aes(fill=RACE.x, y=category_count, x=move_category)) + 
+    geom_bar(position="dodge", stat="identity")+
+    xlab("")+
+    ylab("Total for Category")
+
+test_2
+
+
+###experiment
+
+#get table of move category by race
+# <- table(move_category_race_female_summmary$RACE.x, move_category_race_female_summmary$move_category)
+#first
+#second <- scale(first, FALSE, colSums(first))*100
+#second
+
+first <- table(move_category_race_female$move_category, move_category_race_female$RACE.x)
+#first
+second_f <- scale(first, FALSE, colSums(first))*100
+second_f
+
+
+first_m <- table(move_category_race$GENDER.x,move_category_race$move_category)
+#first
+second_m <- scale(first, FALSE, colSums(first))*100
+second_m
+
+
+```
+move categories for males
+```{r}
+move_category_race_male <- move_category_race[which(move_category_race$GENDER.x == "Male"),]
+prop.table(table(move_category_race_male$move_category))
+
+first_m <- table(move_category_race_male$move_category, move_category_race_male$RACE.x)
+#first
+second_m <- scale(first, FALSE, colSums(first))*100
+second_m
+
+
+first <- table(move_category_race_female$RACE.x,move_category_race_female$move_category)
+#first
+second_f <- scale(first, FALSE, colSums(first))*100
+second_f
+
+#move categories for females
+
+
+
+
+# #grouped bar plot
+# ggplot(move_category_race_female, aes(fill=Race, y=category_count, x=move_category)) + 
+#     geom_bar(position="dodge", stat="identity")+
+#     xlab("")+
+#     ylab("Total for Category") 
+# 
+# 
+
+
+
+```
+
+dataframe of moves out for Devraj
+```{r}
+
+
+moved_out_2003_dk <- moved_out_2003 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2004_dk <- moved_out_2004 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2005_dk <- moved_out_2005 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2006_dk <- moved_out_2006 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2007_dk <- moved_out_2007 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2008_dk <- moved_out_2008 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2009_dk <- moved_out_2009 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2010_dk <- moved_out_2010 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2011_dk <- moved_out_2011 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2012_dk <- moved_out_2012 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2013_dk <- moved_out_2013 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2014_dk <- moved_out_2014 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2015_dk <- moved_out_2015 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2016_dk <- moved_out_2016 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2017_dk <- moved_out_2017 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+moved_out_2018_dk <- moved_out_2018 %>% select(c("RACE.x", "GENDER.x", "year", "hood.x","X.x", "Y.x", "absolute_change", "hood.y", "X.y", "Y.y", "EL_TRACT"))
+
+
+move_out_dk <- rbind(moved_out_2003_dk,moved_out_2004_dk, moved_out_2005_dk, moved_out_2006_dk, moved_out_2007_dk, moved_out_2008_dk, moved_out_2009_dk, moved_out_2010_dk, moved_out_2011_dk, moved_out_2012_dk, moved_out_2013_dk, moved_out_2014_dk, moved_out_2015_dk, moved_out_2016_dk, moved_out_2017_dk, moved_out_2018_dk)
+
+View(move_out_dk)
+write.csv(move_out_dk, "moves_out.csv")
+
+```
+
+
+
+
