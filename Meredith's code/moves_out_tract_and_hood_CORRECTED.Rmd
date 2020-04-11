@@ -29,7 +29,7 @@ library(tidyverse)
 #library(rlist)
 library(dplyr)
 library(readxl)
-
+library(dplyr)
 
 '%!in%' <- function(x,y)!('%in%'(x,y))
 
@@ -128,13 +128,22 @@ DI_2010$category_num[DI_2010$disadvantage_index > .63 & DI_2010$disadvantage_ind
 
 
 #moves out of EL
-out_2010 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2010-12-31" & address_tracts$MOVEOUTDATE >= "2010-01-01" & address_tracts$hood == "East Liberty"),] 
+out_2010 <- address_tracts[which(address_tracts$MOVEOUTDATE <= "2010-12-31" & address_tracts$MOVEOUTDATE >= "2010-01-01" & address_tracts$hood == "East Liberty"),]%>%
+  #keep only one first row for client ID
+  group_by(CLIENT_ID)%>%
+  slice(which(MOVEINDATE==min(MOVEINDATE)))%>%
+  ungroup()
 
 out_2010 <- out_2010 %>% inner_join(DI_2010, by = "GEOID_Num")
 #View(out_2010)
 
 #moves ioto other neighborhoods
-in_2010 <- address_tracts[which((address_tracts$MOVEINDATE <= "2011-1-1" & address_tracts$MOVEINDATE >= "2010-01-01" & address_tracts$hood != "East Liberty")), ]
+in_2010 <- address_tracts[which((address_tracts$MOVEINDATE <= "2011-1-1" & address_tracts$MOVEINDATE >= "2010-01-01" & address_tracts$hood != "East Liberty")), ]%>%
+  #keep only one first row for client ID
+  group_by(CLIENT_ID)%>%
+  slice(which(MOVEINDATE==min(MOVEINDATE)))%>%
+  ungroup()
+
 #nrow(in_2010)
 
 #race_df<- in_2010 %>%

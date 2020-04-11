@@ -1,6 +1,5 @@
-
 ---
-title: "event study bnps and apartments combined"
+title: "event study bnps and apartments, moves and disadvantage"
 author: "Devraj Kori"
 date: "3/13/2020"
 output: html_document
@@ -56,7 +55,7 @@ zero_tau=(-1)
 #selct neighborhoods to include
 included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
                           "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
-                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield","Bloomfield",
+                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
                           "Highland Park", "Morningside",
                           "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
                           "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
@@ -89,10 +88,14 @@ load("combined apartments commercial bnps.Rdata")
 zoning<-read_sf("zoning/zoning.geojson")%>%
   select(full_zoning_type)
 
-#read in moves
+#read in east end moves for disadvantage
 load("east end moves.Rdata")
+
 #move the directory up a level (outside "quantitative analysis into main folder)
 setwd("..")
+
+load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
+load("data preparation/all data clean 29-feb-2020.RData",verbose=TRUE)
 
 
 #load pittsburgh neighborhood shapefile
@@ -111,7 +114,27 @@ combined<-apartments_commercial_bnps%>%
 combined[combined$Development.Projects=="Rippey Apartment Complex",]$Type<-"Mixed-income"
 combined[combined$Development.Projects=="East Mall Apartments",]$Type<-"Mixed-income"
 #join dat_cleaned5 with 
-moves2<-moves%>%
+geocoded_data<-dat_cleaned5%>%
+  #remove NA move-outs, since this version is only looking at displacements
+  filter(!is.na(MOVEOUTDATE))%>%
+  #create the for_geocode_addr column
+  mutate(for_geocode_addr = paste(PRIMARYSTREET,ZIP,sep = ", "))%>%
+  left_join(correctly_coded%>%
+              select(for_geocode_addr)%>%
+              unique())%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP,geometry)%>%
+  #make into sf object for join
+  st_as_sf(crs = "+init=epsg:4326")%>%
+  #join with neighborhoods
+  st_join(neighborhoods,join=st_within)%>%
+  unique()%>%
+  filter(hood%in%included_neighborhoods)%>%
+  #join with zoning data
+  st_join(zoning,join=st_within)%>%
+  filter(RACE%in%races_included)
+
+#join dat_cleaned5 with 
+disadvantages<-moves%>%
   st_as_sf()%>%
   filter(start_hood%in%included_neighborhoods)%>%
   #join with zoning data
@@ -120,50 +143,63 @@ moves2<-moves%>%
   # add a year column
   mutate(t=as.numeric(format(moveout_date,"%Y")))
 
+
 ```
 
+Create a year dataset, where each row corresponds to all of the instances of people living in an apartment in a given year
 ```{r construct_panel_frame}
-# year_range<-2003:2019
-# for(year in year_range){
-#   year_frame<-moves2%>%
-#     #create movein and moveout year variables to filter by
-#     mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
-#            moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
-#     #filter to only include rows where the stay includes that year
-#     filter(movein_year<=year & moveout_year<=year)%>%
-#     #create a flag indicating if they moved out in that year
-#     mutate(moved_out=(moveout_year==year))%>%
-#     #add a year column
-#     mutate(t=year)%>%
-#     #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
-#     group_by(CLIENT_ID,t)%>%
-#     slice(which.min(MOVEINDATE))%>%
-#     ungroup()%>%
-#     #remove move-in/move-out fields since they're not relevant in this structure
-#     select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
-#     
-#   #bind results
-#   if(year==year_range[1]){
-#     panel_frame<-year_frame
-#   }else{
-#     panel_frame<-rbind(year_frame,panel_frame)
-#   }
-# }
+year_range<-2003:2019
+for(year in year_range){
+  year_frame<-geocoded_data%>%
+    #create movein and moveout year variables to filter by
+    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+    #filter to only include rows where the stay includes that year
+    filter(movein_year<=year & moveout_year<=year)%>%
+    #create a flag indicating if they moved out in that year
+    mutate(moved_out=(moveout_year==year))%>%
+    #add a year column
+    mutate(t=year)%>%
+    #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
+    group_by(CLIENT_ID,t)%>%
+    slice(which.min(MOVEINDATE))%>%
+    ungroup()%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
+    
+  #bind results
+  if(year==year_range[1]){
+    panel_frame<-year_frame
+  }else{
+    panel_frame<-rbind(year_frame,panel_frame)
+  }
+}
 
 ```
 
-```{r calculate_apartment_address_distances}
+```{r calculate_apartment_address_distances_moves}
 #calculate distances between new apartments and geocoded data
-distances<-st_distance(apartments_commercial_bnps$geometry,
-                       moves2$geometry)
+distances_moves<-st_distance(apartments_commercial_bnps$geometry,
+                       panel_frame$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
-in_range<-which(distances>=inner_distance & distances<=outer_distance,arr.ind=TRUE)%>%as.data.frame
+in_range_moves<-which(distances_moves>=inner_distance & distances_moves<=outer_distance,arr.ind=TRUE)%>%as.data.frame
 
 #remove distances to preserve memory
 #rm(distances)
 ```
 
+```{r calculate_apartment_address_distances_disadvantage}
+#calculate distances between new apartments and geocoded data
+distances_disadvantages<-st_distance(apartments_commercial_bnps$geometry,
+                       disadvantages$geometry)
+
+#limit to just addresses that fall within specified range of each new apartment
+in_range_disadvantages<-which(distances_disadvantages>=inner_distance & distances_disadvantages<=outer_distance,arr.ind=TRUE)%>%as.data.frame
+
+#remove distances to preserve memory
+#rm(distances)
+```
 
 ```{r construct_event_frame, warning=FALSE}
 #i<-1
@@ -172,7 +208,7 @@ bnp_indices<-1:nrow(combined)
 
 # this function returns a dataframe for a given event, with an event-time Tau value assigned to events in the treatment range. Untreated events are returned with a Tau value of 999 
 # rows outside of the treatment range are assigned Tau=0 for all rows
-event_frame_function<-function(i){
+event_frame_function<-function(i,df,in_range){
   #print(i)
   #define apartment date
   event_year<-combined[i,]$`Date-Completed`%>%as.numeric()
@@ -185,7 +221,7 @@ event_frame_function<-function(i){
   voucher_indices_in_range<-in_range[in_range$row==i,]$col
   
   #define rows in treatment, create a tau variable
-  treated_rows<-moves2%>%
+  treated_rows<-df%>%
     #limit just to rows in distance range of given event
     slice(voucher_indices_in_range)%>%
     #define tau as difference between t and apartment_year
@@ -198,7 +234,7 @@ event_frame_function<-function(i){
 
   
   #untreated rows serve as control, so define those too
-  untreated_rows<-moves2%>%
+  untreated_rows<-df%>%
     #limit just to rows outside distance range of given event
     slice(-voucher_indices_in_range)%>%
     #define tau as 999 (so it can be dropped later)
@@ -231,12 +267,23 @@ tau_dummies<-function(df){
 
 #call event frame function over bnp indices
 # apply the event frame fucntion to each of the events (by using the row indices of the BNP frame)
-for_event_study_list<-lapply(bnp_indices,event_frame_function)
-test<-for_event_study_list[[1]]
+  # do this separately for 
+# for_event_study_list<-lapply(bnp_indices,event_frame_function())
+# test<-for_event_study_list[[1]]
 # using do.call on rbind binds each event's rows together
-for_event_study<-do.call(rbind,
-                         #lapply calls the function over event indices
-                         for_event_study_list)%>%
+for_event_study_moves<-do.call(rbind,
+                               lapply(bnp_indices,function(x)event_frame_function(i=x,
+                                                                                  df=panel_frame,
+                                                                                  in_range=in_range_moves)))%>%
+  #add tau dummies
+  tau_dummies()%>%
+  #remove the dummy for tau_999, corresponding to untreated events
+  select(-Tau_999)%>%
+  unique()
+for_event_study_disadvantage<-do.call(rbind,
+                               lapply(bnp_indices,function(x) event_frame_function(i=x,
+                                                                                   df=disadvantages,
+                                                                                   in_range=in_range_disadvantages)))%>%
   #add tau dummies
   tau_dummies()%>%
   #remove the dummy for tau_999, corresponding to untreated events
@@ -245,14 +292,52 @@ for_event_study<-do.call(rbind,
   #add field for disadvantage change, which will be the outcome
   mutate(disadvantage_change=end_disadvantage-start_disadvantage)
 
-
-
 ```
 
-```{r run_event_study}
+```{r run_event_study_moves}
 #create the formula for the event study
 taus_list<-c()
-for(tau in levels(for_event_study$Tau)){
+for(tau in levels(for_event_study_moves$Tau)){
+  taus_list<-c(taus_list,paste0("`Tau_",tau,"`"))
+}
+#remove taus_list
+taus_list<-taus_list[taus_list!="`Tau_999`"]
+#remove tau for normalized year
+norm_year_tau<-paste0("`Tau_",zero_tau,"`")
+taus_list<-taus_list[taus_list!=norm_year_tau]
+
+taus_string<-paste0(taus_list,collapse=" + ")
+formula<-as.formula(paste0("moved_out~",taus_string))
+
+test_run<-lm_robust(formula,data=for_event_study_moves,fixed_effects=t+hood+full_zoning_type,clusters=hood,
+                    se_type="stata")
+summary(test_run)
+```
+
+```{r plot_test_run_coefficients_moves}
+
+data.frame(coefs=test_run$coefficients,
+           tau_string=names(test_run$coefficients),
+           #specify range as 1.96*sd
+           error=test_run$std.error*1.96)%>%
+  #add in the zero tau
+  rbind(data.frame(coefs=0,
+                   tau_string=norm_year_tau,
+                   error=0))%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_|TRUE','',tau_string,)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="Event study, outcome = likelihood of moving")
+
+```
+```{r run_event_study_disadvantage}
+#create the formula for the event study
+taus_list<-c()
+for(tau in levels(for_event_study_disadvantage$Tau)){
   taus_list<-c(taus_list,paste0("`Tau_",tau,"`"))
 }
 #remove taus_list
@@ -261,11 +346,11 @@ taus_list<-taus_list[taus_list!="`Tau_999`"]
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("disadvantage_change~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study,fixed_effects=t+start_hood+full_zoning_type,se_type="stata")
+test_run<-lm_robust(formula,data=for_event_study_disadvantage,fixed_effects=t+start_hood+full_zoning_type,clusters=start_hood,se_type="stata")
 summary(test_run)
 ```
 
-```{r plot_test_run_coefficients}
+```{r plot_test_run_coefficients_disadvantage}
 
 for_normalization<-test_run$coefficients[paste0("`Tau_",zero_tau,"`TRUE")]
 data.frame(coefs=test_run$coefficients-for_normalization,
@@ -279,9 +364,7 @@ data.frame(coefs=test_run$coefficients-for_normalization,
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="Moves to Disadvantage (95% C.I.s shown)",
-       y = "Increase in disadvantage in event year",
-       x = "Years after event")
+  labs(title="Event study, outcome = change in disadvantage score of moves")
 
 ```
 
