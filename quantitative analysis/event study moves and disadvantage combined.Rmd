@@ -94,9 +94,7 @@ load("east end moves.Rdata")
 #move the directory up a level (outside "quantitative analysis into main folder)
 setwd("..")
 
-load("data preparation/geocode addresses/all recipient addresses geocoded.Rdata",verbose=TRUE)
-load("data preparation/all data clean 29-feb-2020.RData",verbose=TRUE)
-
+load("cleaned and geocoded data 01-April.Rdata")
 
 #load pittsburgh neighborhood shapefile
 neighborhoods<-read_sf("data preparation/geocode addresses/Neighborhoods_/Neighborhoods_.shx")%>%
@@ -114,20 +112,10 @@ combined<-apartments_commercial_bnps%>%
 combined[combined$Development.Projects=="Rippey Apartment Complex",]$Type<-"Mixed-income"
 combined[combined$Development.Projects=="East Mall Apartments",]$Type<-"Mixed-income"
 #join dat_cleaned5 with 
-geocoded_data<-dat_cleaned5%>%
+geocoded_data<-cleaned_and_geocoded%>%
   #remove NA move-outs, since this version is only looking at displacements
   filter(!is.na(MOVEOUTDATE))%>%
-  #create the for_geocode_addr column
-  mutate(for_geocode_addr = paste(PRIMARYSTREET,ZIP,sep = ", "))%>%
-  left_join(correctly_coded%>%
-              select(for_geocode_addr)%>%
-              unique())%>%
-  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP,geometry)%>%
-  #make into sf object for join
-  st_as_sf(crs = "+init=epsg:4326")%>%
-  #join with neighborhoods
-  st_join(neighborhoods,join=st_within)%>%
-  unique()%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP,hood,geometry)%>%
   filter(hood%in%included_neighborhoods)%>%
   #join with zoning data
   st_join(zoning,join=st_within)%>%

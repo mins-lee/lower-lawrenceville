@@ -110,7 +110,8 @@ combined<-apartments_commercial_bnps%>%
 #change the type for Rippey street to Mixed income
 combined[combined$Development.Projects=="Rippey Apartment Complex",]$Type<-"Mixed-income"
 combined[combined$Development.Projects=="East Mall Apartments",]$Type<-"Mixed-income"
-#join dat_cleaned5 with 
+
+
 moves2<-moves%>%
   st_as_sf()%>%
   filter(start_hood%in%included_neighborhoods)%>%
