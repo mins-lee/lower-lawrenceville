@@ -167,7 +167,7 @@ for(year in year_range){
 
 ```{r calculate_apartment_address_distances_moves}
 #calculate distances between new apartments and geocoded data
-distances_moves<-st_distance(apartments_commercial_bnps$geometry,
+distances_moves<-st_distance(combined$geometry,
                        panel_frame$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
@@ -179,7 +179,7 @@ in_range_moves<-which(distances_moves>=inner_distance & distances_moves<=outer_d
 
 ```{r calculate_apartment_address_distances_disadvantage}
 #calculate distances between new apartments and geocoded data
-distances_disadvantages<-st_distance(apartments_commercial_bnps$geometry,
+distances_disadvantages<-st_distance(combined$geometry,
                        disadvantages$geometry)
 
 #limit to just addresses that fall within specified range of each new apartment
@@ -331,20 +331,27 @@ for(tau in levels(for_event_study_disadvantage$Tau)){
 #remove taus_list
 taus_list<-taus_list[taus_list!="`Tau_999`"]
 
+#remove tau for normalized year
+norm_year_tau<-paste0("`Tau_",zero_tau,"`")
+taus_list<-taus_list[taus_list!=norm_year_tau]
+
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("disadvantage_change~",taus_string))
 
-test_run<-lm_robust(formula,data=for_event_study_disadvantage,fixed_effects=t+start_hood+full_zoning_type,clusters=start_hood,se_type="stata")
+test_run<-lm_robust(formula,data=for_event_study_disadvantage,fixed_effects=t+start_hood,clusters=start_hood,se_type="stata")
 summary(test_run)
 ```
 
 ```{r plot_test_run_coefficients_disadvantage}
 
-for_normalization<-test_run$coefficients[paste0("`Tau_",zero_tau,"`TRUE")]
-data.frame(coefs=test_run$coefficients-for_normalization,
+data.frame(coefs=test_run$coefficients,
            tau_string=names(test_run$coefficients),
            #specify range as 1.96*sd
            error=test_run$std.error*1.96)%>%
+  #add in the zero tau
+  rbind(data.frame(coefs=0,
+                   tau_string=norm_year_tau,
+                   error=0))%>%
   #make tau numeric
   mutate(tau_string=gsub('`','',tau_string),
          tau=as.numeric(gsub('Tau_|TRUE','',tau_string,)))%>%
@@ -352,8 +359,7 @@ data.frame(coefs=test_run$coefficients-for_normalization,
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="Event study, outcome = change in disadvantage score of moves")
-
+  labs(title="Event study, outcome = change in disadvantage")
 ```
 
 ```{r test_issues}
