@@ -1,0 +1,512 @@
+---
+title: "event study bnps and apartments, moves and disadvantage"
+author: "Devraj Kori"
+date: "3/13/2020"
+output: html_document
+---
+Event study possible specification
+$$Y_{i,ht} = \sum_{\tau=-q}^m(\beta_{\tau}D^{\tau}_{i,h,t}) + \theta_{h} + \psi_t + \epsilon_{i,h,t}$$
+
++ $Y_{i,h,t}$ is equal to 1 if individual i in neighborhood h moves in time t.
++ $\tau$ is an event-time indicator which is equal to the difference between year t and the year that the apartment was constructed. 
++ $D^{\tau}_{i,h,t}$ is a set of event-time dummies equal to 1 if individual i in neighborhood h is within the treatment area around the location of the new apartment.
++ $\theta_h$ represents neighborhood fixed-effects
++ $\psi_t$ represents year fixed effects
++ $\epsilon_{i,h,t}$ is the error term, which should be uncorrelated with the other terms. 
+
+* If there is a causal effect of the construction of a new apartment on displacement of nearby voucher residents, then the $\beta_{\tau}$ values will be close to zero for values of $\tau$ less than zero, and will be positive for values of $\tau$ greater than 0.
+* Untreated observations for a given event serve as the control, most rows will be untreated
+
+* The treatment area is the census block group where the apartment/commercial project was built, excluding residences on the same physical land parcel as the apartment/commercial project
+* Rows are repeated for each event where an individual is treated. If individual i's location in year t is in the treatment range for two different events, the rows corresponding to i and t will be repeated for each event, with different taus assigned depending on when each apartment opened.
+* Some rows will be eliminated if we can identify that individuals have been forcibly displaced prior to the construction of an apartment (i.e, if forced out by a landlord to make room for new construction)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggmap)
+library(rgdal)
+library(tidycensus)
+library(ggplot2)
+library(dummies)
+library(estimatr)
+library(openxlsx)
+library(tidyr)
+```
+
+```{r set_parameters}
+
+#set year range
+year_range<-2003:2019
+
+
+#define binning, the maximum number of years before/after an opening to include
+#specify years prior as negative number
+years_prior<-(-6)
+years_after<-(6)
+
+#set Tau to normalize around (Tau that is forced to be 0)
+zero_tau=(-1)
+
+
+#specify max repeated treatments for stays and moves. We can specify more possible repeated treatments with stays than moves because the dataset is much larger, so we have far more degrees of freedom to play with
+max_repeated_treatments_stays<-5
+max_repeated_treatments_moves<-2
+#selct neighborhoods to include
+included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
+                          "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
+                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
+                          "Highland Park", "Morningside",
+                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          "Morningside", "Stanton Heights")
+
+races_included<-c("Black/African American",
+                  "Multi-Racial",
+                  "Asian",
+                  "Native Hawaiian/Other Pacific Islander",
+                  "American Indian/Alaska Native",
+                  "White")
+
+bnp_types<-c(
+  "Commercial",
+  "Affordable Only",
+  "Mixed-income",
+  "Market Rate")
+#races_included<-"Black/African American"
+#included_neighborhoods<-c("East Liberty","Homewood")
+```
+
+
+```{r load_datasets}
+load("files for event study.Rdata")
+
+#limit apartments/bnps combined to just selected neighborhoods
+combined<-bnps%>%
+  filter(hood%in%included_neighborhoods)%>%
+  select(-hood)%>%
+  #remove affordable-only
+  filter(Type%in%bnp_types)%>%
+  #arrange by year (so assigning event dummies will be sequential)
+  arrange(`Date-Completed`)
+
+
+#define dataset for propensity to  
+stays<-voucher_stays%>%
+  #remove NA move-outs, since this version is only looking at displacements
+  filter(!is.na(MOVEOUTDATE))%>%
+  #create a field for address
+  mutate(address=paste(PRIMARYSTREET,ZIP))%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, address, hood,GEOID,geometry)%>%
+  filter(hood%in%included_neighborhoods)%>%
+  filter(RACE%in%races_included)
+
+#join dat_cleaned5 with 
+moves<-voucher_moves%>%
+  st_as_sf()%>%
+  filter(start_hood%in%included_neighborhoods)%>%
+  filter(race%in%races_included)%>%
+  # add a year column
+  mutate(t=as.numeric(format(moveout_date,"%Y")))%>%
+  #add field for disadvantage change, which will be the outcome
+  mutate(disadvantage_change=end_disadvantage-start_disadvantage)%>%
+  #add an "address" field corresponding to the start address 
+  mutate(address=paste(start_street,start_zip))
+
+
+
+```
+
+
+
+```{r identify_treated_stay_and_moves}
+#first identify addresses for stays and moves that fall within a bnp_parcel
+stays_in_parcels<-stays%>%
+  select(address)%>%
+  unique()%>%
+  st_join(bnp_parcels,st_within,left=FALSE)
+
+moves_from_parcels<-moves%>%
+  select(address)%>%
+  unique()%>%
+  st_join(bnp_parcels,st_within,left=FALSE)
+
+
+#join stay/move addresses with bnps by geoid
+treated_stay_addresses<-stays%>%
+  select(address,GEOID)%>%
+  unique()%>%
+  as.data.frame()%>%
+  #join in bnps, match by geoid
+  inner_join(bnps%>%as.data.frame(),
+             by="GEOID")%>%
+  #remove rows where the address is within the parcel
+  anti_join(stays_in_parcels)%>%
+  #sort by date completed
+  arrange(`Date-Completed`)
+
+treated_move_addresses<-moves%>%
+  select(address,GEOID)%>%
+  unique()%>%
+  as.data.frame()%>%
+  #join in bnps, match by geoid
+  inner_join(bnps%>%as.data.frame(),by="GEOID")%>%
+  #remove rows where the start_address is within the parcel
+  anti_join(moves_from_parcels)%>%
+  #sort by date completed
+  arrange(`Date-Completed`)
+
+```
+
+
+
+
+Create a year dataset, where each row corresponds to all of the instances of people living in an apartment in a given year
+```{r construct_panel_frame}
+for(year in year_range){
+  year_frame<-stays%>%
+    #create movein and moveout year variables to filter by
+    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+    #filter to only include rows where the stay includes that year
+    filter(movein_year<=year & moveout_year<=year)%>%
+    #create a flag indicating if they moved out in that year
+    mutate(moved_out=(moveout_year==year))%>%
+    #add a year column
+    mutate(t=year)%>%
+    #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
+    group_by(CLIENT_ID,t)%>%
+    slice(which.min(MOVEINDATE))%>%
+    ungroup()%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
+    
+  #bind results
+  if(year==year_range[1]){
+    panel_stays<-year_frame
+  }else{
+    panel_stays<-rbind(year_frame,panel_stays)
+  }
+}
+
+```
+
+
+
+```{r construct_event_frame,warning=FALSE}
+#unlike tall event_frame function, this one needs to
+  #1.) iterate through each row of panel_frame that's treated at least once 
+  #2.) for each treated row, find all events that treat that row, progressively add event taus
+  #3.) translate event taus to dummies
+
+#create vector of treated row indices for stays
+treated_row_ids_stays<-panel_stays%>%
+  #strip geometry
+  as.data.frame()%>%
+  #add a row number id 
+  mutate(id=row_number())%>%
+  filter(address%in%treated_stay_addresses$address)%>%
+  select(id)%>%unlist()
+
+#create vector of treated rows indices for moves
+treated_row_ids_moves<-moves%>%
+  #strip geometry
+  as.data.frame()%>%
+  #add a row number id 
+  mutate(id=row_number())%>%
+  filter(address%in%treated_move_addresses$address)%>%
+  select(id)%>%unlist()
+
+#create a function that takes as arguments:
+  #1.) a row id corresponding to either panel_frame or disadvantages
+  #2.) a df (panel or disadvantages)
+  #3.) the appropriate dataframe of treated rows (in_range_moves or in_range_disadvantages)
+
+
+#create a function that takes a dataframe as its argument and creates dummies for each tau value
+
+event_dummy_function<-function(i,df,treatment_frame,repeated_treatments){
+  #limit to given row of df, strip geometry with as.data.frame
+  temp_frame<-as.data.frame(df[i,])
+  #find events associated with that row
+  events_for_row<-treatment_frame%>%
+    filter(address%in%temp_frame$address)
+  
+  # loop through events treating the given row, create calculate a tau and use that to create a dummy for the given event
+  for(j in 1:min(nrow(events_for_row),repeated_treatments)){
+    #define apartment/BNP date
+    event_year<-events_for_row[j,]$`Date-Completed`%>%as.numeric()
+
+    #create event time variable for given event
+    temp_frame<-temp_frame%>%
+      mutate(Tau= t-event_year)
+    # if tau is within the prespecified min_max year, assign dummy for Tau, otherwise assign dummy for min/max
+    # this should correctly bin endpoints
+    if(temp_frame$Tau<years_prior){
+      dum_name<-paste0("Tau_",j,"_",years_prior)
+      temp_frame<-temp_frame%>%
+        mutate(!!dum_name := 1)%>%
+        select(-Tau)
+    }else if(temp_frame$Tau>years_after){
+      dum_name<-paste0("Tau_",j,"_",years_after)
+      temp_frame<-temp_frame%>%
+        mutate(!!dum_name := 1)%>%
+        select(-Tau)
+    }else{ 
+      dum_name<-paste0("Tau_",j,"_",temp_frame$Tau)
+      temp_frame<-temp_frame%>%
+        mutate(!!dum_name := 1)%>%
+        select(-Tau)
+      }
+  }
+  return(temp_frame)
+}
+
+# #create a helper function that will be called inside the event dummy function above to create tau dummies
+# 
+# tau_dummies<-function(df2,event_num){
+#   #make tau a factor
+#   df2$Tau<-factor(df2$Tau)
+#   #iterate through the levels of Tau, create a dummy in a new frame named "Tau_-x" and bind to df
+#   #x<-levels(df$Tau)[2]
+# 
+#   for(x in levels(df2$Tau)){
+#     dummy_frame<-data.frame(col=(df2$Tau==x))
+#     #set the name to be "Event_j_x"
+#     names(dummy_frame)<-paste0("Tau_",event_num,"_",x)
+#     df2<-bind_cols(df2,dummy_frame)
+#   }
+#   df2
+# }
+
+#create a function that binds the rows of an arbitrary list, this will make the next step more readable
+# bind_many<-function(some_list){
+#   do.call(bind_rows,some_list)
+# }
+
+#apply the function we just created to each treated row in the stays panel frame
+treated_stays<-lapply(treated_row_ids_stays,
+                      function(x) event_dummy_function(
+                        i=x,
+                        df=panel_stays,
+                        treatment_frame=treated_stay_addresses,
+                        repeated_treatments=max_repeated_treatments_stays))%>%
+  #bind all of the rows together
+  bind_rows()
+
+#apply the function to each row in the disadvantages frame
+treated_moves<-lapply(treated_row_ids_moves,
+                      function(x) event_dummy_function(
+                        i=x,
+                        df=moves,
+                        treatment_frame=treated_stay_addresses,
+                        repeated_treatments=max_repeated_treatments_moves))%>%
+  #bind all of the rows together
+  bind_rows()
+
+#find untreated rows for both moves and disadvantages to add back in
+untreated_stays<-panel_stays%>%
+  slice(-treated_row_ids_stays)
+
+untreated_moves<-moves%>%
+  slice(-treated_row_ids_moves)
+
+#create named list of nas to replace for moves and disadvantages
+na_stays<-names(treated_stays)[grep("Tau",names(treated_stays))]
+
+
+na_moves<-names(treated_moves)[grep("Tau",names(treated_moves))]
+
+
+#bind treated and treated moves, replace nas
+
+# create event study frames, labeled by outcome
+outcome_move_likelihood<-treated_stays%>%
+  #add in untreated moves
+  bind_rows(untreated_stays)%>%
+  #replace NAs with zeros
+  mutate_at(vars(na_stays),~replace_na(., 0))
+
+outcome_disadvantage_change<-treated_moves%>%
+  #add in untreated disadvantage
+  bind_rows(untreated_moves)%>%
+  #replace NAs with zeros
+  mutate_at(vars(na_moves),~replace_na(.,0))
+  
+head(outcome_move_likelihood)
+```
+
+
+
+
+```{r run_event_study_moves}
+#create the formula for the event study
+
+#fetch names of for_event_study_moves that contain the string Tau
+taus_list<-names(outcome_move_likelihood)[grep("Tau",names(outcome_move_likelihood))]
+
+#normalize around zero_tau of first year
+
+
+norm_year_tau<-paste0("Tau_1_",zero_tau)
+taus_list<-taus_list[taus_list!=norm_year_tau]
+
+#wrap each tau list in ` ` for formula
+for(i in 1:length(taus_list)){
+  taus_list[i]<-paste0('`',taus_list[i],'`')
+}
+
+taus_string<-paste0(taus_list,collapse=" + ")
+formula<-as.formula(paste0("moved_out~",taus_string))
+
+test_run<-lm_robust(formula,data=outcome_move_likelihood,fixed_effects=t+hood,clusters=hood,
+                    se_type="stata")
+summary(test_run)
+```
+
+```{r plot_coefficients_moves_event1}
+
+#find indices of taus for first event treating each row
+first_event_indices<-grep("Tau_1",names(test_run$coefficients))
+data.frame(coefs=test_run$coefficients[first_event_indices],
+           tau_string=names(test_run$coefficients)[first_event_indices],
+           #specify range as 1.96*sd
+           error=test_run$std.error[first_event_indices]*1.96)%>%
+  #add in the zero tau
+  rbind(data.frame(coefs=0,
+                   tau_string=paste0('`',norm_year_tau,'`'),
+                   error=0))%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="First Event, outcome = likelihood of moving")
+
+```
+
+```{r plot_coefficients_moves_event2}
+
+#find indices of taus for first event treating each row
+first_event_indices<-grep("Tau_2",names(test_run$coefficients))
+data.frame(coefs=test_run$coefficients[first_event_indices],
+           tau_string=names(test_run$coefficients)[first_event_indices],
+           #specify range as 1.96*sd
+           error=test_run$std.error[first_event_indices]*1.96)%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="Second Event, outcome = likelihood of moving")
+
+```
+```{r plot_coefficients_moves_event3}
+
+#find indices of taus for first event treating each row
+first_event_indices<-grep("Tau_3",names(test_run$coefficients))
+data.frame(coefs=test_run$coefficients[first_event_indices],
+           tau_string=names(test_run$coefficients)[first_event_indices],
+           #specify range as 1.96*sd
+           error=test_run$std.error[first_event_indices]*1.96)%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="Third Event, outcome = likelihood of moving")
+
+```
+
+```{r run_event_study_disadvantage}
+#create the formula for the event study
+
+#fetch names of for_event_study_moves that contain the string Tau
+taus_list<-names(outcome_disadvantage_change)[grep("Tau",names(outcome_disadvantage_change))]
+
+#normalize around zero_tau of first year
+
+
+norm_year_tau<-paste0("Tau_1_",zero_tau)
+taus_list<-taus_list[taus_list!=norm_year_tau]
+
+#wrap each tau list in ` ` for formula
+for(i in 1:length(taus_list)){
+  taus_list[i]<-paste0('`',taus_list[i],'`')
+}
+taus_string<-paste0(taus_list,collapse=" + ")
+formula<-as.formula(paste0("disadvantage_change~",taus_string))
+
+test_run<-lm_robust(formula,data=outcome_disadvantage_change,
+                    fixed_effects=t+start_hood,clusters=start_hood,se_type="stata")
+summary(test_run)
+```
+
+```{r plot_coefficients_disadvantage_event1}
+
+#find indices of taus for first event treating each row
+first_event_indices<-grep("Tau_1",names(test_run$coefficients))
+data.frame(coefs=test_run$coefficients[first_event_indices],
+           tau_string=names(test_run$coefficients)[first_event_indices],
+           #specify range as 1.96*sd
+           error=test_run$std.error[first_event_indices]*1.96)%>%
+  #add in the zero tau
+  rbind(data.frame(coefs=0,
+                   tau_string=paste0('`',norm_year_tau,'`'),
+                   error=0))%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="First Event, outcome = change in disadvantage")
+
+```
+
+
+```{r plot_coefficients_disadvantage_event2}
+
+#find indices of taus for first event treating each row
+first_event_indices<-grep("Tau_2",names(test_run$coefficients))
+data.frame(coefs=test_run$coefficients[first_event_indices],
+           tau_string=names(test_run$coefficients)[first_event_indices],
+           #specify range as 1.96*sd
+           error=test_run$std.error[first_event_indices]*1.96)%>%
+  #make tau numeric
+  mutate(tau_string=gsub('`','',tau_string),
+         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+  ggplot(aes(x=tau,y=coefs))+
+  geom_point(aes(x=tau,y=coefs))+
+  geom_line()+
+  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+  labs(title="Second Event, outcome = change in disadvantage")
+
+```
+
+
+```{r test_code}
+#create a function that just returns x, to test vectorizing
+# return_x=function(x){
+#   return(x%>%
+#            as.data.frame()%>%
+#            mutate(some_added_column="test"))
+# }
+# 
+# test<-apply(panel_frame%>%
+#               as.data.frame()%>%
+#               select(-geometry),1,function(y)return_x(x=y))%>%as.data.frame()
+
+
+
+```

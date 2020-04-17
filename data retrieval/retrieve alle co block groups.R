@@ -10,7 +10,10 @@ alle_co_block_groups<-get_acs(year=2018,
                               state="PA",
                               county="Allegheny",
                               geometry=TRUE)%>%
+  st_transform(crs="+init=epsg:4326")%>%
   select(GEOID)
+
+
 
 
 #save block group data
