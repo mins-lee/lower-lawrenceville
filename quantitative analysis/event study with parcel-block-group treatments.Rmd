@@ -53,7 +53,7 @@ zero_tau=(-1)
 
 
 #specify max repeated treatments for stays and moves. We can specify more possible repeated treatments with stays than moves because the dataset is much larger, so we have far more degrees of freedom to play with
-max_repeated_treatments_stays<-5
+max_repeated_treatments_stays<-2
 max_repeated_treatments_moves<-2
 #selct neighborhoods to include
 included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
@@ -64,12 +64,15 @@ included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood 
                           "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
                           "Morningside", "Stanton Heights")
 
-races_included<-c("Black/African American",
-                  "Multi-Racial",
-                  "Asian",
-                  "Native Hawaiian/Other Pacific Islander",
-                  "American Indian/Alaska Native",
-                  "White")
+races_included<-c("Black/African American"#,
+                  #"Multi-Racial",
+                  #"Asian",
+                  #"Native Hawaiian/Other Pacific Islander",
+                  #"American Indian/Alaska Native",
+                  #"White"
+                  )
+
+genders_included<-c("Female","Male")
 
 bnp_types<-c(
   "Commercial",
@@ -102,7 +105,8 @@ stays<-voucher_stays%>%
   mutate(address=paste(PRIMARYSTREET,ZIP))%>%
   select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, address, hood,GEOID,geometry)%>%
   filter(hood%in%included_neighborhoods)%>%
-  filter(RACE%in%races_included)
+  filter(RACE%in%races_included)%>%
+  filter(GENDER%in%genders_included)
 
 #join dat_cleaned5 with 
 moves<-voucher_moves%>%
