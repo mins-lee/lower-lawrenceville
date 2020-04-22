@@ -1,0 +1,12 @@
+name: visualize_event_study_radii
+title: visualize_event_study_radii
+username:
+account: dkori
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2142872
+bundleId: 3032598
+url: https://dkori.shinyapps.io/visualize_event_study_radii/
+when: 1587253766.79604
+asMultiple: FALSE
+asStatic: FALSE

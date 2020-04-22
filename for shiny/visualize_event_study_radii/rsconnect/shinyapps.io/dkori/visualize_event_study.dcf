@@ -1,0 +1,12 @@
+name: visualize_event_study
+title: visualize_event_study
+username:
+account: dkori
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2141224
+bundleId: 3031764
+url: https://dkori.shinyapps.io/visualize_event_study/
+when: 1587231973.32704
+asMultiple: FALSE
+asStatic: FALSE

@@ -76,7 +76,7 @@ genders_included<-c("Female","Male")
 
 bnp_types<-c(
   "Commercial",
-  "Affordable Only",
+  #"Affordable Only",
   "Mixed-income",
   "Market Rate")
 #races_included<-"Black/African American"
@@ -94,7 +94,11 @@ combined<-bnps%>%
   #remove affordable-only
   filter(Type%in%bnp_types)%>%
   #arrange by year (so assigning event dummies will be sequential)
-  arrange(`Date-Completed`)
+  arrange(`Date-Completed`)%>%
+  #change projection to a different crs joins will be more accurate
+  st_transform("+init=epsg:2163")%>%
+  #draw a 250 meter buffer around each point
+  st_buffer(dist=250)
 
 
 #define dataset for propensity to  
@@ -106,7 +110,9 @@ stays<-voucher_stays%>%
   select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, address, hood,GEOID,geometry)%>%
   filter(hood%in%included_neighborhoods)%>%
   filter(RACE%in%races_included)%>%
-  filter(GENDER%in%genders_included)
+  filter(GENDER%in%genders_included)%>%
+  #change projection to a different crs joins will be more accurate
+  st_transform("+init=epsg:2163")
 
 #join dat_cleaned5 with 
 moves<-voucher_moves%>%
@@ -118,7 +124,9 @@ moves<-voucher_moves%>%
   #add field for disadvantage change, which will be the outcome
   mutate(disadvantage_change=end_disadvantage-start_disadvantage)%>%
   #add an "address" field corresponding to the start address 
-  mutate(address=paste(start_street,start_zip))
+  mutate(address=paste(start_street,start_zip))%>%
+  #change projection to a different crs joins will be more accurate
+  st_transform("+init=epsg:2163")
 
 
 
@@ -131,35 +139,41 @@ moves<-voucher_moves%>%
 stays_in_parcels<-stays%>%
   select(address)%>%
   unique()%>%
-  st_join(bnp_parcels,st_within,left=FALSE)
+  st_join(bnp_parcels%>%
+    #change projection to a different crs joins will be more accurate
+    st_transform("+init=epsg:2163"),
+    st_within,left=FALSE)
 
 moves_from_parcels<-moves%>%
   select(address)%>%
   unique()%>%
-  st_join(bnp_parcels,st_within,left=FALSE)
+  st_join(bnp_parcels%>%
+    #change projection to a different crs joins will be more accurate
+    st_transform("+init=epsg:2163"),st_within,left=FALSE)
 
 
 #join stay/move addresses with bnps by geoid
 treated_stay_addresses<-stays%>%
   select(address,GEOID)%>%
   unique()%>%
-  as.data.frame()%>%
   #join in bnps, match by geoid
-  inner_join(combined%>%as.data.frame(),
-             by="GEOID")%>%
+  st_join(combined,st_within,left=FALSE)%>%
   #remove rows where the address is within the parcel
-  anti_join(stays_in_parcels)%>%
+  anti_join(stays_in_parcels%>%
+              as.data.frame()%>%
+              select(-geometry))%>%
   #sort by date completed
   arrange(`Date-Completed`)
 
 treated_move_addresses<-moves%>%
   select(address,GEOID)%>%
   unique()%>%
-  as.data.frame()%>%
   #join in bnps, match by geoid
-  inner_join(combined%>%as.data.frame(),by="GEOID")%>%
+  st_join(combined,st_within,left=FALSE)%>%
   #remove rows where the start_address is within the parcel
-  anti_join(moves_from_parcels)%>%
+  anti_join(moves_from_parcels%>%
+              as.data.frame()%>%
+              select(-geometry))%>%
   #sort by date completed
   arrange(`Date-Completed`)
 

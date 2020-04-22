@@ -36,5 +36,5 @@ for(i in 1:nrow(bnp_blocks)){
 }
 
 #save the datasets needed for shiny
-save(voucher_stays,bnp_blocks,bnp_parcels,blocks_and_parcels,file="for shiny/visualize_event_study/data for event study visualizer.Rdata")
+save(voucher_stays,bnps, bnp_blocks,bnp_parcels,blocks_and_parcels,file="for shiny/visualize_event_study_radii/data for event study visualizer.Rdata")
 load("for shiny/visualize_event_study/data for event study visualizer.Rdata")
