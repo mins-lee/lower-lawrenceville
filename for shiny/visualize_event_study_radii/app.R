@@ -23,6 +23,7 @@ included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood 
                           "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
                           "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
                           "Morningside", "Stanton Heights")
+
 #limit voucher stays and blocks_and_parcels to 
 voucher_stays<-voucher_stays%>%
     filter(hood%in%included_neighborhoods)

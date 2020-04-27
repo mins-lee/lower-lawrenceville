@@ -61,7 +61,7 @@ included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood 
                           "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
                           "Highland Park", "Morningside",
                           "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
-                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          #"Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
                           "Morningside", "Stanton Heights")
 
 races_included<-c("Black/African American",
@@ -76,7 +76,7 @@ genders_included<-c("Female","Male")
 
 bnp_types<-c(
   "Commercial",
-  "Affordable Only",
+  #"Affordable Only",
   "Mixed-income",
   "Market Rate")
 #races_included<-"Black/African American"

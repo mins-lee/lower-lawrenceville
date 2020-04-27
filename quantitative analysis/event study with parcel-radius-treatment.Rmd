@@ -40,7 +40,7 @@ library(tidyr)
 ```{r set_parameters}
 
 #set year range
-year_range<-2003:2019
+year_range<-2003:2018
 
 
 #define binning, the maximum number of years before/after an opening to include
@@ -104,7 +104,8 @@ combined<-bnps%>%
 #define dataset for propensity to  
 stays<-voucher_stays%>%
   #remove NA move-outs, since this version is only looking at displacements
-  filter(!is.na(MOVEOUTDATE))%>%
+  #filter(!is.na(MOVEOUTDATE))%>%
+  replace_na(list(MOVEOUTDATE = as.Date("2021-01-01",format('%Y-%m-%d'))))%>%
   #create a field for address
   mutate(address=paste(PRIMARYSTREET,ZIP))%>%
   select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, address, hood,GEOID,geometry)%>%

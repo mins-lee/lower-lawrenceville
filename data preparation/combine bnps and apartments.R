@@ -46,7 +46,7 @@ apartments<-bind_rows(market_rate,mixed_income,affordable)%>%
 load("quantitative analysis/bnps re-geocoded.Rdata")
 
 commercial_bnps<-bnps_recoded%>%
-  filter(Type=="Commercial" | grepl("Rippey",`Development.Projects`) | grepl("East Mall",`Development.Projects`))%>%
+  filter(Type=="Commercial" | grepl("Rippey",`Development.Projects`))%>%
   select(`Development.Projects`,`Date-Completed`,Type)%>%
   #make completion date numeric
   mutate(`Date-Completed`=as.numeric(`Date-Completed`))%>%
