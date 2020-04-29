@@ -34,7 +34,7 @@ library(shiny)
 ui <- fluidPage(
     
     # Application title
-    titlePanel("Visualize Event Study Treatments"),
+    titlePanel("Redevelopment and Housing Voucher Recipient Movement"),
     #add theme
     fluidPage(theme = shinytheme("slate")),
     # Sidebar with a slider input for number of bins 
@@ -61,7 +61,7 @@ ui <- fluidPage(
             HTML("The map below shows parcels of land that have experienced major redevelopment over the past 20 years
                  where housing choice voucher recipients lived at some point in our study period.</br>
                  Click on a parcel to view the time-trend of voucher recipients on that property. 
-                 </br>Use the options on the right to limit the parcels displayed."),
+                 </br>Use the options on the left to limit the developments displayed."),
             leafletOutput("map"),
             plotOutput("time_series"))
     )
@@ -111,10 +111,11 @@ server <- function(input, output) {
                             st_as_sf(),
                         #stroke=FALSE,
                         color=~pal2(Type),
-                        opacity=0.3,
+                        opacity=0.6,
                         group="bnps",
                         layerId = ~Development.Projects,
-                        popup = ~paste(Development.Projects,'</br>Completed in ',`Date-Completed`))
+                        popup = ~paste(Development.Projects,'</br>Completed in ',`Date-Completed`),
+                        label = ~paste(Development.Projects,`Date-Completed`,sep=", "))
     })
     
     #create a reactive corresponding to july 1 of the year of the event completion

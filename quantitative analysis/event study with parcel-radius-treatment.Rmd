@@ -53,7 +53,7 @@ zero_tau=(-1)
 
 
 #specify max repeated treatments for stays and moves. We can specify more possible repeated treatments with stays than moves because the dataset is much larger, so we have far more degrees of freedom to play with
-max_repeated_treatments_stays<-2
+max_repeated_treatments_stays<-3
 max_repeated_treatments_moves<-2
 #selct neighborhoods to include
 included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
@@ -381,7 +381,7 @@ for(i in 1:length(taus_list)){
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("moved_out~",taus_string))
 
-test_run<-lm_robust(formula,data=outcome_move_likelihood,fixed_effects=t+hood,clusters=hood,
+test_run<-lm_robust(formula,data=outcome_move_likelihood,fixed_effects=t+CLIENT_ID,clusters=CLIENT_ID,
                     se_type="stata")
 summary(test_run)
 ```
@@ -428,21 +428,21 @@ data.frame(coefs=test_run$coefficients[first_event_indices],
 
 ```
 ```{r plot_coefficients_moves_event3}
-
-#find indices of taus for first event treating each row
-first_event_indices<-grep("Tau_3",names(test_run$coefficients))
-data.frame(coefs=test_run$coefficients[first_event_indices],
-           tau_string=names(test_run$coefficients)[first_event_indices],
-           #specify range as 1.96*sd
-           error=test_run$std.error[first_event_indices]*1.96)%>%
-  #make tau numeric
-  mutate(tau_string=gsub('`','',tau_string),
-         tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
-  ggplot(aes(x=tau,y=coefs))+
-  geom_point(aes(x=tau,y=coefs))+
-  geom_line()+
-  geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="Third Event, outcome = likelihood of moving")
+# 
+# #find indices of taus for first event treating each row
+# first_event_indices<-grep("Tau_3",names(test_run$coefficients))
+# data.frame(coefs=test_run$coefficients[first_event_indices],
+#            tau_string=names(test_run$coefficients)[first_event_indices],
+#            #specify range as 1.96*sd
+#            error=test_run$std.error[first_event_indices]*1.96)%>%
+#   #make tau numeric
+#   mutate(tau_string=gsub('`','',tau_string),
+#          tau=as.numeric(gsub('Tau_._','',tau_string)))%>%
+#   ggplot(aes(x=tau,y=coefs))+
+#   geom_point(aes(x=tau,y=coefs))+
+#   geom_line()+
+#   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
+#   labs(title="Third Event, outcome = likelihood of moving")
 
 ```
 
@@ -466,7 +466,7 @@ taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("disadvantage_change~",taus_string))
 
 test_run<-lm_robust(formula,data=outcome_disadvantage_change,
-                    fixed_effects=t+start_hood,clusters=start_hood,se_type="stata")
+                    fixed_effects=t+client_id,clusters=client_id,se_type="stata")
 summary(test_run)
 ```
 

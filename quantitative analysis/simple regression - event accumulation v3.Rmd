@@ -1,0 +1,227 @@
+---
+title: "simple regression development accumulation v2"
+author: "Devraj Kori"
+date: "4/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(dplyr)
+library(sf)
+library(leaflet)
+library(ggmap)
+library(rgdal)
+library(tidycensus)
+library(ggplot2)
+library(dummies)
+library(estimatr)
+library(openxlsx)
+library(tidyr)
+library(reticulate)
+```
+
+```{r set_parameters}
+
+#set year range
+year_range<-2003:2018
+
+#treatment range
+treatment_range<-400
+
+#define binning, the maximum number of years before/after an opening to include
+#specify years prior as negative number
+
+#set Tau to normalize around (Tau that is forced to be 0)
+
+
+#specify max repeated treatments for stays and moves. We can specify more possible repeated treatments with stays than moves because the dataset is much larger, so we have far more degrees of freedom to play with
+max_repeated_treatments_stays<-6
+max_repeated_treatments_moves<-6
+#selct neighborhoods to include
+included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
+                          "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
+                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
+                          "Highland Park", "Morningside",
+                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          "Morningside", "Stanton Heights")
+
+races_included<-c("Black/African American",
+                  "Multi-Racial",
+                  "Asian",
+                  "Native Hawaiian/Other Pacific Islander",
+                  "American Indian/Alaska Native",
+                  "White"
+                  )
+
+genders_included<-c("Female","Male")
+
+bnp_types<-c(
+  "Commercial",
+  #"Affordable Only",
+  "Mixed-income",
+  "Market Rate")
+#races_included<-"Black/African American"
+#included_neighborhoods<-c("East Liberty","Homewood")
+```
+
+
+```{r load_datasets}
+load("files for event study.Rdata")
+
+#limit apartments/bnps combined to just selected neighborhoods
+combined<-bnps%>%
+  filter(hood%in%included_neighborhoods)%>%
+  select(-hood)%>%
+  #remove affordable-only
+  filter(Type%in%bnp_types)%>%
+  #arrange by year (so assigning event dummies will be sequential)
+  arrange(`Date-Completed`)%>%
+  #change projection to a different crs joins will be more accurate
+  st_transform("+init=epsg:2163")%>%
+  #draw a 250 meter buffer around each point
+  st_buffer(dist=treatment_range)
+
+
+#define dataset for propensity to  
+stays<-voucher_stays%>%
+  #remove NA move-outs, since this version is only looking at displacements
+  #filter(!is.na(MOVEOUTDATE))%>%
+  replace_na(list(MOVEOUTDATE = as.Date("2021-01-01",format('%Y-%m-%d'))))%>%
+  #create a field for address
+  mutate(address=paste(PRIMARYSTREET,ZIP))%>%
+  select(HA, CLIENT_ID, GENDER, RACE, MOVEINDATE, MOVEOUTDATE, address, hood,GEOID,geometry)%>%
+  filter(hood%in%included_neighborhoods)%>%
+  filter(RACE%in%races_included)%>%
+  filter(GENDER%in%genders_included)%>%
+  #change projection to a different crs joins will be more accurate
+  st_transform("+init=epsg:2163")
+
+
+```
+
+
+```{r identify_treated_stay_and_moves}
+#first identify addresses for stays and moves that fall within a bnp_parcel
+stays_in_parcels<-stays%>%
+  select(address)%>%
+  unique()%>%
+  st_join(bnp_parcels%>%
+    #change projection to a different crs joins will be more accurate
+    st_transform("+init=epsg:2163"),
+    st_within,left=FALSE)
+
+
+
+#join stay/move addresses with bnps by geoid
+treated_stay_addresses<-stays%>%
+  select(address,GEOID)%>%
+  unique()%>%
+  #join in bnps, match by geoid
+  st_join(combined,st_within,left=FALSE)%>%
+  #remove rows where the address is within the parcel
+  anti_join(stays_in_parcels%>%
+              as.data.frame()%>%
+              select(-geometry))%>%
+  #sort by date completed
+  arrange(`Date-Completed`)
+
+
+
+```
+
+
+```{r construct_panel_frame}
+for(year in year_range){
+  year_frame<-stays%>%
+    #create movein and moveout year variables to filter by
+    mutate(movein_year=as.numeric(format(MOVEINDATE,"%Y")),
+           moveout_year=as.numeric(format(MOVEOUTDATE,"%Y")))%>%
+    #filter to only include rows where the stay includes that year
+    filter(movein_year<=year & moveout_year<=year)%>%
+    #create a flag indicating if they moved out in that year
+    mutate(moved_out=(moveout_year==year))%>%
+    #add a year column
+    mutate(t=year)%>%
+    #if an individual moves during a year, we only want the first instance of them moving, so only grab row corresponding to the earlier move-in date
+    group_by(CLIENT_ID,t)%>%
+    slice(which.min(MOVEINDATE))%>%
+    ungroup()%>%
+    #remove move-in/move-out fields since they're not relevant in this structure
+    select(-c(MOVEINDATE,MOVEOUTDATE,movein_year,moveout_year))
+    
+  #bind results
+  if(year==year_range[1]){
+    panel_stays<-year_frame
+  }else{
+    panel_stays<-rbind(year_frame,panel_stays)
+  }
+}
+
+```
+
+```{r add_counter_for_treatments}
+
+panel_stays$`Accumulated Developments`<-0
+
+events_list<-unique(combined$Development.Projects)
+#strip geometry from panel_stays to speed up for loop
+panel<-panel_stays%>%as.data.frame()%>%select(-geometry)%>%arrange(t)
+#create an id column for panel
+panel$row_id<-1:nrow(panel)
+start<-Sys.time()
+for(event in events_list){
+  #define event date and addresses treated by event 
+  event_date<-combined[combined$Development.Projects==event,]$`Date-Completed`
+  treated_address_list<-treated_stay_addresses[treated_stay_addresses$Development.Projects==event,]$address
+  panel_subset<-panel%>%
+    #limit to addresses treated by event
+    filter(address%in%treated_address_list)%>%
+    #limit only to years after event
+    filter(t>event_date)%>%
+    #add 1 to the event counter
+    mutate(`Accumulated Developments` = `Accumulated Developments`+1)
+  #iterate through rows in panel_subset, and update value in panel
+  if(nrow(panel_subset)>=1){
+    for(i in 1:nrow(panel_subset)){
+      panel[panel$row_id==panel_subset[i,]$row_id,]$`Accumulated Developments`<-panel_subset[i,]$`Accumulated Developments`
+  }}
+}
+end<-Sys.time()
+
+```
+
+```{r regression}
+#run a simple regression
+#model1: year and hood fixed effects
+model_t_hood<-lm(moved_out~`Accumulated Developments`+factor(t)+hood,
+                 data=panel)
+#model2: year and cluster fixed effects
+model_t_client<-lm(moved_out~`Accumulated Developments`+factor(t)+factor(CLIENT_ID),
+                 data=panel)
+#use stargazer to prep SEs
+se_hood<-starprep(model_t_hood,se_type="stata",clusters=panel$hood)
+se_client<-starprep(model_t_client,se_type="stata",clusters=factor(panel$CLIENT_ID))
+summary(model_t_hood)
+summary(model_t_client)
+
+save(model_t_hood,model_t_client,se_hood,se_client,file=paste0("regression_models/",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
+```
+
+```{r regression_glm}
+#run a simple regression
+#model1: year and hood fixed effects
+logit_t_hood<-glm(moved_out~`Accumulated Developments`+factor(t)+hood,
+                 data=panel,
+                 family="binomial")
+#model2: year and cluster fixed effects
+logit_t_client<-glm(moved_out~`Accumulated Developments`+factor(t)+factor(CLIENT_ID),
+                 data=panel,
+                 family="binomial")
+summary(logit_t_hood)
+summary(logit_t_client)
+
+save(logit_t_hood,logit_t_client,file=paste0("regression_models/logit_",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
+```

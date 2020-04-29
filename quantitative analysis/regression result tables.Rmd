@@ -1,0 +1,86 @@
+---
+title: "simple regression table"
+author: "Devraj Kori"
+date: "4/29/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(estimatr)
+library(stargazer)
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r load_and_rename_models,results='asis'}
+load("regression_models/6_treatments_200_radius.Rdata")
+
+radius_200_lm_hood<-model_t_hood
+radius_200_lm_client<-model_t_client
+se_200_hood<-se_hood
+se_200_client<-se_client
+
+load("regression_models/6_treatments_300_radius.Rdata")
+
+radius_300_lm_hood<-model_t_hood
+radius_300_lm_client<-model_t_client
+
+se_300_hood<-se_hood
+se_300_client<-se_client
+
+load("regression_models/6_treatments_400_radius.Rdata")
+
+radius_400_lm_hood<-model_t_hood
+radius_400_lm_client<-model_t_client
+
+se_400_hood<-se_hood
+se_400_client<-se_client
+
+#use starprep to correct standard errors
+ses_hood<-starprep(radius_200_lm_hood,
+                   radius_300_lm_hood,
+                   radius_400_lm_hood,
+                   se_type="stata")
+ses_client<-starprep(radius_200_lm_client,
+                     radius_300_lm_client,
+                     radius_400_lm_client,
+                     se_type="stata")
+
+stargazer(radius_200_lm_hood,
+          radius_300_lm_hood,
+          radius_400_lm_hood,
+          radius_200_lm_client,
+          radius_300_lm_client,
+          radius_400_lm_client,
+          se=c(se_200_hood,se_300_hood,se_400_hood,se_200_client,se_300_client,se_400_client),
+          keep=c("Accumulated Developments"),
+          dep.var.labels = "Voucher Resident Movement",
+          title = "OLS Regressions: Probability of Movement",
+          add.lines=list(c("Treatment Radius","200","300","400","200","300","400"),
+                         c("Fixed Effects", "Hood,","Hood,","Hood,","Client,","Client,","Client,"),
+                         c(" ","Time","Time","Time","Time","Time","Time")),
+          omit.stat=c("f","ser"))
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r lm_table, results='asis'}
+
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
