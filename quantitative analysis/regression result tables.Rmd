@@ -3,7 +3,8 @@ title: "simple regression table"
 author: "Devraj Kori"
 date: "4/29/2020"
 output:
-  pdf_document: default
+  pdf_document:
+    fig_caption: FALSE
   html_document: default
 ---
 
@@ -12,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(estimatr)
 library(stargazer)
-
+library(scales)
 ```
 
 ## R Markdown
@@ -24,52 +25,58 @@ When you click the **Knit** button a document will be generated that includes bo
 ```{r load_and_rename_models,results='asis'}
 load("regression_models/6_treatments_200_radius.Rdata")
 
-radius_200_lm_hood<-model_t_hood
-radius_200_lm_client<-model_t_client
-se_200_hood<-se_hood
-se_200_client<-se_client
-
+radius_200_lm<-model_t_hood
+se_200<-se_hood
+treated_200<-comma(treated_rows)
 load("regression_models/6_treatments_300_radius.Rdata")
 
-radius_300_lm_hood<-model_t_hood
-radius_300_lm_client<-model_t_client
+radius_300_lm<-model_t_hood
+se_300<-se_hood
+treated_300<-comma(treated_rows)
 
-se_300_hood<-se_hood
-se_300_client<-se_client
 
 load("regression_models/6_treatments_400_radius.Rdata")
 
-radius_400_lm_hood<-model_t_hood
-radius_400_lm_client<-model_t_client
+radius_400_lm<-model_t_hood
+se_400<-se_hood
+treated_400<-comma(treated_rows)
 
-se_400_hood<-se_hood
-se_400_client<-se_client
 
-#use starprep to correct standard errors
-ses_hood<-starprep(radius_200_lm_hood,
-                   radius_300_lm_hood,
-                   radius_400_lm_hood,
-                   se_type="stata")
-ses_client<-starprep(radius_200_lm_client,
-                     radius_300_lm_client,
-                     radius_400_lm_client,
-                     se_type="stata")
+#load logit  models
 
-stargazer(radius_200_lm_hood,
-          radius_300_lm_hood,
-          radius_400_lm_hood,
-          radius_200_lm_client,
-          radius_300_lm_client,
-          radius_400_lm_client,
-          se=c(se_200_hood,se_300_hood,se_400_hood,se_200_client,se_300_client,se_400_client),
+load("regression_models/logit_6_treatments_200_radius.Rdata")
+radius_200_logit<-logit_t_hood
+se_200_logit<-summary(radius_200_logit)$coefficients[,2][2]%>%
+  list()
+
+load("regression_models/logit_6_treatments_300_radius.Rdata")
+radius_300_logit<-logit_t_hood
+se_300_logit<-summary(radius_300_logit)$coefficients[,2][2]%>%
+  list()
+
+load("regression_models/logit_6_treatments_400_radius.Rdata")
+radius_400_logit<-logit_t_hood
+se_400_logit<-summary(radius_400_logit)$coefficients[,2][2]%>%
+  list()
+
+
+
+stargazer(radius_200_lm,
+          radius_300_lm,
+          radius_400_lm,
+          radius_200_logit,
+          radius_300_logit,
+          radius_400_logit,
+          se=c(se_200,se_300,se_400,se_200_logit,se_300_logit,se_400_logit),
           keep=c("Accumulated Developments"),
-          dep.var.labels = "Voucher Resident Movement",
-          title = "OLS Regressions: Probability of Movement",
-          add.lines=list(c("Treatment Radius","200","300","400","200","300","400"),
-                         c("Fixed Effects", "Hood,","Hood,","Hood,","Client,","Client,","Client,"),
-                         c(" ","Time","Time","Time","Time","Time","Time")),
-          omit.stat=c("f","ser"))
-
+          dep.var.labels = "Voucher Resident Movement in Pittsburgh's East End",
+          title = "Regressions: Probability of Movement",
+          add.lines=list(c("Treatment Radius (meters)","200","300","400","200","300","400"),
+                         #c("Method", "OLS","OLS","OLS","Logit","Logit","Logit"),
+                         c("Rows treated",treated_200,treated_300,treated_400,
+                           treated_200,treated_300,treated_400)),
+          omit.stat=c("f","ser"),
+          notes = strwrap("All models include year and neighborhood fixed effects. Standard errors for OLS models are robust and clustered at the neighborhood level. The outcome variable is equal to 1 if an individual living at an address in a given year moves during that year; 0 otherwise. Each treatment range is a circle around a redeveloped parcel that excludes voucher residents located on the physical parcel where redevelopment occurred."))
 
 ```
 

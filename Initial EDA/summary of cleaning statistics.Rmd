@@ -32,19 +32,19 @@ data_list<-lapply(file_names,function(x) read_tsv(paste0(getwd(),"/data preparat
 dat<-do.call(rbind,data_list)
 
 #load cleaned data
-load("data preparation/all data clean 29-feb-2020.Rdata")
+load("cleaned and geocoded data 01-April.Rdata")
 ```
 
 
 ```{r summary_stats, results="asis"}
 starting_addresses<-length(unique(dat[dat$RELATIONSHIP=="Head",]$PRIMARYSTREET))%>%comma()
-final_addresses<-length(unique(dat_cleaned5$PRIMARYSTREET))%>%comma()
+final_addresses<-length(unique(cleaned_and_geocoded$PRIMARYSTREET))%>%comma()
 
 original_rows<-nrow(dat[dat$RELATIONSHIP=="Head",])%>%comma()
-final_rows<-nrow(dat_cleaned5)%>%comma()
+final_rows<-nrow(cleaned_and_geocoded)%>%comma()
 
 missing_moveout_original<-nrow(dat[dat$RELATIONSHIP=="Head" & is.na(dat$MOVEOUTDATE),])%>%comma()
-missing_moveout_final<-nrow(dat_cleaned5[is.na(dat_cleaned5$MOVEOUTDATE),])%>%comma()
+missing_moveout_final<-nrow(cleaned_and_geocoded[is.na(cleaned_and_geocoded$MOVEOUTDATE),])%>%comma()
 
 #put these into a kable table
 cleaning_summary<-data.frame(` `=c("Unique Physical Addresses:",
@@ -67,7 +67,7 @@ kable(cleaning_summary,format="latex",booktabs=TRUE,caption="Cleaning Summary St
 
 ```{r summary_stats_race, results="asis"}
 #summarize by race
-by_race<-dat_cleaned5%>%
+by_race<-cleaned_and_geocoded%>%
   group_by(RACE)%>%
   summarise(clients = n_distinct(CLIENT_ID),
             rows = n())%>%
@@ -81,7 +81,7 @@ by_race
 
 ```{r summary_stats_gender, results="asis"}
 
-by_gender<-dat_cleaned5%>%
+by_gender<-cleaned_and_geocoded%>%
   group_by(GENDER)%>%
   summarise(clients = n_distinct(CLIENT_ID),
             rows = n())%>%

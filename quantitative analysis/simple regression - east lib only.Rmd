@@ -1,5 +1,5 @@
 ---
-title: "simple regression development accumulation v2"
+title: "simple regression - east lib only"
 author: "Devraj Kori"
 date: "4/27/2020"
 output: html_document
@@ -40,13 +40,15 @@ treatment_range<-200
 max_repeated_treatments_stays<-6
 max_repeated_treatments_moves<-6
 #selct neighborhoods to include
-included_neighborhoods<-c("East Liberty", "Homewood","Homewood West", "Homewood South","Homewood North",
-                          "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
-                          "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
-                          "Highland Park", "Morningside",
-                          "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
-                          "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
-                          "Morningside", "Stanton Heights")
+included_neighborhoods<-c("East Liberty"
+                          # , "Homewood","Homewood West", "Homewood South","Homewood North",
+                          # "Larimer","Point Breeze","Point Breeze North", "East Hills", "Swisshelm Park",
+                          # "Shadyside", "Squirrel Hill North", "Squirrel Hill South", "Garfield", "Bloomfield",
+                          # "Highland Park", "Morningside",
+                          # "Greenfield", "Hazelwood","Glen Hazel", "Lincoln-Lemington-Belmar",
+                          # "Lower Lawrenceville", "Upper Lawrenceville", "Central Lawrenceville",
+                          # "Morningside", "Stanton Heights")
+)
 
 races_included<-c("Black/African American",
                   "Multi-Racial",
@@ -60,7 +62,7 @@ genders_included<-c("Female","Male")
 
 bnp_types<-c(
   "Commercial",
-  #"Affordable Only",
+  "Affordable Only",
   "Mixed-income",
   "Market Rate")
 #races_included<-"Black/African American"
@@ -198,24 +200,25 @@ end<-Sys.time()
 panel$CLIENT_ID<-as.character(panel$CLIENT_ID)
 #run a simple regression
 #model1: year and hood fixed effects
-model_t_hood<-lm(moved_out~`Accumulated Developments`+factor(t)+hood,
+model_t_hood<-lm(moved_out~`Accumulated Developments`+factor(t),
                  data=panel)
 # #model2: year and cluster fixed effects
 # model_t_client<-lm(moved_out~`Accumulated Developments`+factor(t)+CLIENT_ID,
 #                  data=panel)
 #use stargazer to prep SEs
-se_hood<-starprep(model_t_hood,se_type="stata",clusters=panel$hood)
+se_hood<-starprep(model_t_hood,se_type="stata")
 #se_client<-starprep(model_t_client,se_type="stata",clusters=panel$CLIENT_ID)
 summary(model_t_hood)
 #summary(model_t_client)
-
-save(model_t_hood,se_hood,file=paste0("regression_models/",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
+#store the amount of rows that are treated
+treated_rows<-nrow(panel[panel$`Accumulated Developments`>0,])
+save(model_t_hood,se_hood,treated_rows,file=paste0("regression_models/",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
 ```
 
 ```{r regression_glm}
 #run a simple regression
 #model1: year and hood fixed effects
-logit_t_hood<-glm(moved_out~`Accumulated Developments`+factor(t)+hood,
+logit_t_hood<-glm(moved_out~`Accumulated Developments`+factor(t),
                  data=panel,
                  family="binomial")
 #model2: year and cluster fixed effects

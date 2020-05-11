@@ -8,6 +8,7 @@
 library(dplyr)
 library(sf)
 library(readr)
+library(readr)
 market_rate<-read_csv("quantitative analysis/New Pgh Apartments - Large market-rate apts since 1999 - cleaned.csv")%>%
   #rename the units column
   mutate(units = `# mkt rate units`)%>%
@@ -56,4 +57,12 @@ commercial_bnps<-bnps_recoded%>%
 names(apartments)<-names(commercial_bnps)
 
 apartments_commercial_bnps<-rbind(apartments,commercial_bnps)
+
+#write out a summary of the apartments by type
+write_csv(apartments_commercial_bnps%>%
+            group_by(Type)%>%
+            summarise(developments = n())%>%
+            ungroup(),
+          "bnp type count.csv"
+            )
 save(apartments_commercial_bnps,file="quantitative analysis/combined apartments commercial bnps.Rdata")

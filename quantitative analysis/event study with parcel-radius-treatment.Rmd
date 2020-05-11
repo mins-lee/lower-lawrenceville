@@ -49,7 +49,7 @@ years_prior<-(-6)
 years_after<-(6)
 
 #set Tau to normalize around (Tau that is forced to be 0)
-zero_tau=(-1)
+zero_tau=(0)
 
 
 #specify max repeated treatments for stays and moves. We can specify more possible repeated treatments with stays than moves because the dataset is much larger, so we have far more degrees of freedom to play with
@@ -98,7 +98,7 @@ combined<-bnps%>%
   #change projection to a different crs joins will be more accurate
   st_transform("+init=epsg:2163")%>%
   #draw a 250 meter buffer around each point
-  st_buffer(dist=250)
+  st_buffer(dist=200)
 
 
 #define dataset for propensity to  
@@ -381,7 +381,7 @@ for(i in 1:length(taus_list)){
 taus_string<-paste0(taus_list,collapse=" + ")
 formula<-as.formula(paste0("moved_out~",taus_string))
 
-test_run<-lm_robust(formula,data=outcome_move_likelihood,fixed_effects=t+CLIENT_ID,clusters=CLIENT_ID,
+test_run<-lm_robust(formula,data=outcome_move_likelihood,fixed_effects=t+hood,clusters=hood,
                     se_type="stata")
 summary(test_run)
 ```
@@ -405,7 +405,9 @@ data.frame(coefs=test_run$coefficients[first_event_indices],
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="First Event, outcome = likelihood of moving")
+  labs(title="First Event, outcome = likelihood of moving",
+       x = "Event Time",
+       y = "Percentage-point change in likelihood of moving")
 
 ```
 
@@ -424,7 +426,9 @@ data.frame(coefs=test_run$coefficients[first_event_indices],
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="Second Event, outcome = likelihood of moving")
+  labs(title="Second Event, outcome = likelihood of moving",
+       x = "Event Time",
+       y = "Percentage-point change in likelihood of moving")
 
 ```
 ```{r plot_coefficients_moves_event3}
@@ -489,7 +493,9 @@ data.frame(coefs=test_run$coefficients[first_event_indices],
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="First Event, outcome = change in disadvantage")
+  labs(title="First Event, outcome = change in disadvantage",
+       x = "Event Time",
+       y = "Percentage-point change in likelihood of moving")
 
 ```
 
@@ -509,7 +515,9 @@ data.frame(coefs=test_run$coefficients[first_event_indices],
   geom_point(aes(x=tau,y=coefs))+
   geom_line()+
   geom_errorbar(aes(ymin=coefs-error,ymax=coefs+error))+
-  labs(title="Second Event, outcome = change in disadvantage")
+  labs(title="Second Event, outcome = change in disadvantage",
+       x = "Event Time",
+       y = "Percentage-point change in likelihood of moving")
 
 ```
 

@@ -52,7 +52,14 @@ ui <- fluidPage(
                         max = max(bnp_parcels$`Date-Completed`),
                         value = c(min(bnp_parcels$`Date-Completed`),
                                   max(bnp_parcels$`Date-Completed`)),
-                        sep="")
+                        sep=""),
+            radioButtons("boundaries",
+                         "Show neighborhood or school district boundaries",
+                         c("neighborhood"="hood",
+                           "school district" = "school",
+                           "none" = "none"),
+                         selected="none")
+            
             
         ),
         
@@ -60,8 +67,13 @@ ui <- fluidPage(
         mainPanel(
             HTML("The map below shows parcels of land that have experienced major redevelopment over the past 20 years
                  where housing choice voucher recipients lived at some point in our study period.</br>
-                 Click on a parcel to view the time-trend of voucher recipients on that property. 
-                 </br>Use the options on the left to limit the developments displayed."),
+                 Click on a parcel to view:</br>
+                 <ol>
+                 <li> A chart displaying the time trend of voucher residents living on that parcel </li>
+                 <li> The locations of other addresses where those voucher residents also lived </li> 
+                 </ol>
+                 </br>
+                 Use the options on the left to limit the developments displayed or to add neighborhood or school district boundaries."),
             leafletOutput("map"),
             plotOutput("time_series"))
     )
@@ -76,14 +88,19 @@ server <- function(input, output) {
         
         #st_transform(crs = "+init=epsg:4326") %>%
         leaflet()%>%
-            setView(lng=-79.924577,lat=40.4609065,zoom=13.6) %>%
+            setView(lng=-79.924577,lat=40.4640065,zoom=14.5) %>%
             addProviderTiles(provider = "CartoDB.Positron") %>%
             #add legend for bnps
             addLegend(position="bottomright",
                       pal=pal2,
                       values=unique(bnp_parcels$Type),
-                      title = "Development Type")
+                      title = "Development Type")%>%
+            #use addmap pane to specify order of polygons to be added
+            addMapPane("boundaries",zIndex=410)%>%
+            addMapPane("parcels",zIndex=420)%>%
+            addMapPane("other_stays",zIndex=600)
     })
+
     
     # create the same subset for bnp parcels
     bnp_parcel_subset<-reactive({
@@ -115,7 +132,8 @@ server <- function(input, output) {
                         group="bnps",
                         layerId = ~Development.Projects,
                         popup = ~paste(Development.Projects,'</br>Completed in ',`Date-Completed`),
-                        label = ~paste(Development.Projects,`Date-Completed`,sep=", "))
+                        label = ~paste(Development.Projects,`Date-Completed`,sep=", "),
+                        options = pathOptions(pane = "parcels"))
     })
     
     #create a reactive corresponding to july 1 of the year of the event completion
@@ -137,7 +155,82 @@ server <- function(input, output) {
         print(development_date())
     })
     
+    #create an observer that adds school/hood boundaries to map if radio button is selected
+    observe({
+        if(input$boundaries!="none"){
+            if(input$boundaries=="hood"){
+                leafletProxy("map")%>%
+                    clearGroup("hood")%>%
+                    clearGroup("school")%>%
+                    addPolygons(data=hoods,
+                                group="hood",
+                                popup=~hood,
+                                fillOpacity=.1,
+                                #add zindex to specify layer order
+                                options = pathOptions(pane = "boundaries"))
+            }
+            if(input$boundaries=="school"){
+                leafletProxy("map")%>%
+                    clearGroup("hood")%>%
+                    clearGroup("school")%>%
+                    addPolygons(data=school_boundaries,
+                                group="school",
+                                popup=~SCHOOLD,
+                                fillOpacity=.1,
+                                #add zindex to specify layer order
+                                options = pathOptions(pane = "boundaries"))
+            }
+        }else{
+            leafletProxy("map")%>%
+                clearGroup("hood")%>%
+                clearGroup("school")
+        }
+    })
     
+    #create an observer to add circle markers for other addresses of residents
+    observe({
+        if(length(input$map_shape_click$id)>0){
+            #create the subset of other_stays corresponding to the given parcel
+            other_subset<-other_stays%>%
+                filter(`Development.Projects`==input$map_shape_click$id)%>%
+                filter(!is.na(MOVEINDATE))
+            #create a palette for the timing of the move-in date
+            pal_movein<-colorNumeric(palette="magma",
+                                     domain = as.numeric(other_subset$MOVEINDATE))
+            
+            #stole legend formatting code from here: https://stackoverflow.com/questions/34234576/r-leaflet-use-date-or-character-legend-labels-with-colornumeric-palette
+            myLabelFormat = function(...,dates=FALSE){ 
+                if(dates){ 
+                    function(type = "numeric", cuts){ 
+                        as.Date(cuts, origin="1970-01-01")
+                    } 
+                }else{
+                    labelFormat(...)
+                }
+            }
+            leafletProxy("map")%>%
+                clearGroup("other_stays")%>%
+                addCircleMarkers(data=other_subset,
+                                 radius=5,
+                                 stroke=FALSE,
+                                 popup = ~paste0(PRIMARYSTREET,"<br/>",
+                                                 "Moved in: ", MOVEINDATE,"<br/>",
+                                                 "Moved out: ", MOVEOUTDATE
+                                                 ),
+                                 color=~pal_movein(MOVEINDATE),
+                                 group="other_stays",
+                                 fillOpacity=.8,
+                                 options = pathOptions(pane = "other_stays"))%>%
+                removeControl("other_legend")%>%
+                #add legend
+                addLegend(position="topright",
+                          pal=pal_movein,
+                          values=as.numeric(other_subset$MOVEINDATE),
+                          title = "Move-in Date",
+                          labFormat = myLabelFormat(dates=TRUE),
+                          layerId = "other_legend")
+            }
+    })
     #create a reactive object of a ggplot graph showing 
     output$time_series<-resident_plot<-renderPlot({
         if(length(input$map_shape_click$id)>0){

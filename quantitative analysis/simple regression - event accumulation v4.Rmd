@@ -1,5 +1,5 @@
 ---
-title: "simple regression development accumulation v2"
+title: "simple regression development accumulation v4"
 author: "Devraj Kori"
 date: "4/27/2020"
 output: html_document
@@ -208,8 +208,9 @@ se_hood<-starprep(model_t_hood,se_type="stata",clusters=panel$hood)
 #se_client<-starprep(model_t_client,se_type="stata",clusters=panel$CLIENT_ID)
 summary(model_t_hood)
 #summary(model_t_client)
-
-save(model_t_hood,se_hood,file=paste0("regression_models/",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
+#store the amount of rows that are treated
+treated_rows<-nrow(panel[panel$`Accumulated Developments`>0,])
+save(model_t_hood,se_hood,treated_rows,file=paste0("regression_models/",max_repeated_treatments_stays,"_treatments_",treatment_range,"_radius.Rdata"))
 ```
 
 ```{r regression_glm}

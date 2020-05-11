@@ -5,8 +5,8 @@ account: dkori
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2191096
-bundleId: 3077931
+bundleId: 3132883
 url: https://dkori.shinyapps.io/visualize_direct_displacements/
-when: 1588097054.06994
+when: 1589219670.77445
 asMultiple: FALSE
 asStatic: FALSE
