@@ -1,0 +1,261 @@
+---
+title: "HCV data clean & analysis"
+output: html_notebook
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+library(Hmisc)
+
+df_all <- read_csv("./data/HCV_address_cleaned.csv")
+```
+
+
+```{r}
+df_all <- df_all %>%
+  mutate(CLIENT_ID = as.character(CLIENT_ID), ZIP = as.character(ZIP))
+```
+
+
+```{r}
+Hmisc::describe(df_all)
+```
+
+
+```{r}
+# TODO: check with Nick
+# filter to head of household
+df <- df_all %>%
+  filter(RELATIONSHIP == "Head")
+```
+
+
+```{r}
+total_client <- df_all %>% 
+  select(CLIENT_ID) %>% 
+  unique() %>% 
+  nrow()
+
+total_hoh <- df %>%
+  select(CLIENT_ID) %>% 
+  unique() %>%
+  nrow()
+```
+
+- `r total_client` clients in total
+- `r total_hoh` clients as head of household
+
+```{r}
+describe(df)
+```
+
+
+```{r}
+# 1. clients using HCV from both HACP and ACHA & same address: replace HACP and ACHA with Both and keep unique rows 
+# adopted Dev's code
+different_HAs<-df%>%
+  #group by everything but HA, Race, Moveoutdate (race is excluded because many records used different race for different HA)
+  group_by(CLIENT_ID,MOVEINDATE,PRIMARYSTREET,GENDER,RELATIONSHIP,ZIP)%>%
+  summarise(count=length(unique(HA)))%>%
+  ungroup()%>%
+  #only keep rows with count >=2
+  filter(count>=2)%>%
+  select(-count)
+
+df_HA_edit <- df%>%
+  #limit to just rows that match different_HAs
+  inner_join(different_HAs)%>%
+  #update HA to be "both"
+  mutate(HA="Both")%>%
+  #make unique
+  unique()%>%
+  #add the rest of the rows back in
+  bind_rows(df%>%
+              anti_join(different_HAs))
+```
+
+
+```{r}
+# 2. clients with more than one race: replace each race with Multiracial in RACE and keep unique rows 
+
+# adopted Dev's code
+different_race <- df_HA_edit %>%
+  #group by everything but moveoutdate
+  group_by_at(setdiff(names(.),c("RACE","MOVEOUTDATE")))%>%
+  summarise(count=length(unique(RACE)))%>%
+  filter(count>=2)%>%
+  select(-count)%>%
+  ungroup()
+
+#replace those rows with multiracial
+df_HA_RACE_edit <- df_HA_edit %>%
+  #identify rows with multiple races
+  inner_join(different_race)%>%
+  #update race to multi-racial
+  mutate(RACE="Multiracial")%>%
+  #make unique
+  unique()%>%
+  #join in rows that don't match again
+  bind_rows(df_HA_edit%>%
+              anti_join(different_race))
+```
+
+```{r}
+describe(df_HA_RACE_edit)
+```
+
+```{r}
+# filter to clients with same addresses and movein dates but different moveout dates
+df_HA_RACE_edit %>%
+  group_by(across(-MOVEOUTDATE)) %>%
+  filter(n() > 1) %>%
+  nrow()
+
+df_HA_RACE_edit %>%
+  nrow()
+```
+
+
+```{r}
+# 3. clients with same addresses and movein dates but multiple moveout dates: keep the latest moveout date and bind rows with the rest
+
+# subset1
+multiple_moveout <- df_HA_RACE_edit %>%
+  filter(!is.na(MOVEOUTDATE)) %>%
+  group_by(across(-c(MOVEOUTDATE))) %>% 
+  filter(n() > 1) %>%
+  arrange(CLIENT_ID, PRIMARYSTREET, MOVEINDATE, MOVEOUTDATE) %>% 
+  mutate(MOVEOUTDATE = max(MOVEOUTDATE)) %>%
+  group_by(across(everything())) %>%
+  summarise(n = n()) %>%
+  select(-n)
+
+# subset2
+null_moveout <- df_HA_RACE_edit %>%
+  filter(is.na(MOVEOUTDATE)) 
+
+# subset3
+unique_moveout <- df_HA_RACE_edit %>%
+  filter(!is.na(MOVEOUTDATE)) %>%
+  group_by(across(-c(MOVEOUTDATE))) %>% 
+  filter(n() <= 1)
+
+df_HA_RACE_MOVEOUT_edit <- multiple_moveout %>% 
+  bind_rows(null_moveout, unique_moveout) %>%
+  arrange(CLIENT_ID, MOVEINDATE, PRIMARYSTREET)
+
+
+```
+
+
+
+```{r}
+# 4. clients with null moveout dates: 
+# if subsequent movein date is available for different address, fill null moveout date with next movein date
+
+library(lubridate)
+
+# filter to clients with multiple records of the same address and create a temporary moveout col 
+df_null <- df_HA_RACE_MOVEOUT_edit %>% 
+  group_by(across(-c(MOVEINDATE, MOVEOUTDATE))) %>%
+  filter(n() > 1) %>%
+  mutate(TEMP = as_date('1000-1-1')) %>%
+  arrange(CLIENT_ID, PRIMARYSTREET, MOVEINDATE, MOVEOUTDATE)
+
+
+# if subsequent movein date is available for different address, replace temp date with next movein date
+for (i in 1:(nrow(df_null)-1)) {
+  if(df_null$CLIENT_ID[[i]] == df_null$CLIENT_ID[[i+1]] & 
+     is.null(df_null$MOVEOUTDATE[[i]]))
+    df_null$TEMP[[i]] <- df_null$MOVEINDATE[[i+1]]
+}
+
+df_null %>% filter(TEMP != '1000-1-1') # none available 
+
+# TODO: check with Nick
+# clients with same movein dates & same address but a null moveout date: use the previous moveout date to fill the null moveoout 
+for (i in 1:(nrow(df_null)-1)) {
+  if(df_null$CLIENT_ID[[i]] == df_null$CLIENT_ID[[i+1]] & 
+     df_null$PRIMARYSTREET[[i]] == df_null$PRIMARYSTREET[[i+1]] &
+     df_null$MOVEINDATE[[i]] == df_null$MOVEINDATE[[i+1]])
+  df_null$MOVEOUTDATE[[i+1]] <- df_null$MOVEOUTDATE[[i]]
+}
+
+# test case
+# df_null %>% filter(CLIENT_ID == "1088525182")
+
+df_null <- df_null %>% unique() %>% select(-TEMP)
+
+df_rest <- df_HA_RACE_MOVEOUT_edit %>% 
+  group_by(across(-c(MOVEINDATE, MOVEOUTDATE))) %>%
+  filter(n() <= 1)
+
+df_HA_RACE_MOVEOUT_edit_v2 <- bind_rows(df_null, df_rest)
+
+```
+
+
+```{r}
+# 5. clients with null moveout dates & same addresses & multiple movein dates: keep the earlist movein date and unique rows and bind rows with the rest  
+
+# subset1
+multiple_movein <- df_HA_RACE_MOVEOUT_edit_v2 %>%
+  filter(is.na(MOVEOUTDATE)) %>%
+  group_by(across(-c(MOVEINDATE, MOVEOUTDATE))) %>%
+  filter(n() > 1) %>%
+  mutate(MOVEINDATE = min(MOVEINDATE)) %>%
+  unique() %>%
+  ungroup()
+
+# subset2
+one_movein <- df_HA_RACE_MOVEOUT_edit_v2 %>%
+  filter(is.na(MOVEOUTDATE)) %>%
+  group_by(across(-c(MOVEINDATE, MOVEOUTDATE))) %>%
+  filter(n() <= 1) 
+
+# subset3
+no_null_moveout <- df_HA_RACE_MOVEOUT_edit_v2 %>% 
+  filter(!is.na(MOVEOUTDATE)) 
+
+
+df_HA_RACE_MOVEOUT_edit_v3 <- bind_rows(multiple_movein, one_movein, no_null_moveout)
+
+
+
+
+
+```
+
+
+
+```{r}
+# 6. clients with the length of lease less than 1 day: remove
+clean_df <- df_HA_RACE_MOVEOUT_edit_v3 %>%
+  mutate(tenure = MOVEOUTDATE - MOVEINDATE) %>%
+  filter(tenure > 0) 
+
+lease_less_than_one_day <- clean_df %>%
+  nrow()
+
+```
+
+
+- `r lease_less_than_one_day` clients with the length of lease less than 1 day
+
+```{r}
+describe(clean_df)
+```
+
+
+
+```{r}
+# number of distinct addresses to geocode
+
+clean_df %>%
+  select(PRIMARYSTREET, ZIP) %>%
+  unique() %>%
+  nrow()
+
+
+
+```
