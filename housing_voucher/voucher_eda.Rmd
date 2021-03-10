@@ -1,0 +1,371 @@
+---
+title: "Housing Voucher EDA"
+output: html_notebook
+---
+# TODO: create tables
+# push code
+
+```{r}
+library(tidyverse)
+library(lubridate)
+
+theme_set(theme_bw())
+
+neighbor <- read_csv("./voucher_with_neighborhood.csv")
+df <- neighbor %>%
+  select(
+    HA, CLIENT_ID, GENDER, RACE, RELATIONSHIP, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP, tenure, 
+    geocoder_recognized_address, hood, hood_no) %>%
+  mutate(RACE = recode(RACE, "Multiracial" = "Multi-Racial"),
+         hood = replace(hood, is.na(hood), "Not Pgh"),
+         hood_no = replace(hood_no, is.na(hood_no), -99),
+         year_movein = year(MOVEINDATE),
+         year_moveout = year(MOVEOUTDATE)
+         )
+
+```
+
+
+```{r}
+# TODO: update multi-racial
+
+df %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(GENDER) %>%
+  summarise(total = n())
+
+
+df %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(RACE) %>%
+  summarise(total = n())
+
+
+
+```
+
+```{r}
+total <- df %>%
+  select(CLIENT_ID) %>%
+  unique() %>%
+  nrow()
+
+lower <- df %>% 
+  filter(hood == "Lower Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique() %>%
+  nrow()
+
+central <- df %>% 
+  filter(hood == "Central Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique() %>%
+  nrow()
+
+upper <- df %>% 
+  filter(hood == "Upper Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique() %>%
+  nrow()
+```
+
+- Total clients: `r total`
+- Lower Lawrenceville: `r lower`
+- Central Lawrenceville: `r central`
+- Upper Lawrenceville: `r upper`
+
+
+### 1. Lower Lawrenceville
+
+```{r}
+# clients in lower lawrenceville analysis
+
+# get clients who lived in LL and filter to those clients
+lower_id <- df %>% 
+  filter(hood == "Lower Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique()
+
+target <- pull(lower_id, CLIENT_ID)
+
+df_lower <- df %>%
+  filter(CLIENT_ID %in% target)
+
+# check number of clients in LL: passed
+# df_lower %>%
+#   select(CLIENT_ID) %>%
+#   unique()
+
+df_lower %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(GENDER) %>%
+  summarise(total = n())
+
+
+df_lower %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(RACE) %>%
+  summarise(total = n())
+
+```
+```{r}
+# library(lubridate)
+# 
+# df_lower <- df_lower %>%
+#   mutate(
+#     year_movein = year(MOVEINDATE),
+#     year_moveout = year(MOVEOUTDATE)
+#     )
+
+```
+
+
+```{r}
+# clients with only one record who lived in LL
+
+movein_lower <- df_lower %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_movein) %>%
+  summarize(total = n())
+
+movein_lower
+movein_lower  %>%
+  ggplot(aes(year_movein, total)) + geom_col()
+
+moveout_lower <- df_lower %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_moveout) %>%
+  summarize(total = n()) 
+
+movein_lower
+moveout_lower %>%
+  ggplot(aes(year_moveout, total)) + geom_col() # missing row: still living
+```
+
+```{r}
+# clients in LL who moved to another place
+# self join to see where they moved next
+
+df_lower2 <- df_lower %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  
+df_lower2_copy <- df_lower2 %>%
+  select(CLIENT_ID, MOVEINDATE, MOVEOUTDATE, hood, year_movein, year_moveout)
+
+moves_lower <- df_lower2 %>% 
+  left_join(df_lower2_copy, by="CLIENT_ID") %>%
+  filter(MOVEINDATE.x < MOVEINDATE.y) %>%
+  select(MOVEINDATE.x, MOVEINDATE.y, hood.x, hood.y) %>%
+  filter(hood.x == "Lower Lawrenceville")
+
+# test case: client moving to LL from LL
+# moves_lower %>%
+#   filter(hood.y == "Lower Lawrenceville")
+# df_lower %>%
+#   filter(CLIENT_ID == "1020058394")
+
+neighbor_moves_lower <- moves_lower %>%
+  group_by(hood.y) %>%
+  summarise(total=n()) 
+
+neighbor_moves_lower
+neighbor_moves_lower %>%
+  ggplot(aes(x=reorder(hood.y, total), y=total)) + 
+  geom_col() +
+  labs(title = "Moves from Lower Lawrenceville") +
+  xlab("Neighborhood") +
+  ylab("Count") +
+  coord_flip() 
+
+```
+
+### 2. Central Lawrenceville
+
+```{r}
+# clients in central lawrenceville analysis
+
+# get clients who lived in CL and filter to those clients
+central_id <- df %>% 
+  filter(hood == "Central Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique()
+
+target <- pull(central_id, CLIENT_ID)
+
+df_central <- df %>%
+  filter(CLIENT_ID %in% target)
+
+df_central %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(GENDER) %>%
+  summarise(total = n())
+
+
+df_central %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(RACE) %>%
+  summarise(total = n())
+```
+
+
+```{r}
+# clients with only one record who lived in CL
+
+movein_central <- df_central %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_movein) %>%
+  summarize(total = n()) 
+
+movein_central
+movein_central %>%
+  ggplot(aes(year_movein, total)) + geom_col()
+
+moveout_central <- df_central %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_moveout) %>%
+  summarize(total = n()) 
+
+moveout_central
+moveout_central %>%
+  ggplot(aes(year_moveout, total)) + geom_col() # missing row: still living
+```
+
+```{r}
+# clients in CL who moved to another place
+# self join to see where they moved next
+
+df_central2 <- df_central %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  
+df_central2_copy <- df_central2 %>%
+  select(CLIENT_ID, MOVEINDATE, MOVEOUTDATE, hood, year_movein, year_moveout)
+
+moves_central <- df_central2 %>% 
+  left_join(df_central2_copy, by="CLIENT_ID") %>%
+  filter(MOVEINDATE.x < MOVEINDATE.y) %>%
+  select(MOVEINDATE.x, MOVEINDATE.y, hood.x, hood.y) %>%
+  filter(hood.x == "Central Lawrenceville")
+
+neighbor_moves_central <- moves_central %>%
+  group_by(hood.y) %>%
+  summarise(total=n()) 
+
+neighbor_moves_central
+neighbor_moves_central %>%
+  ggplot(aes(x=reorder(hood.y, total), y=total)) + 
+  geom_col() +
+  labs(title = "Moves from Central Lawrenceville") +
+  xlab("Neighborhood") +
+  ylab("Count") +
+  coord_flip() 
+
+```
+
+### 3. Upeer Lawrenceville
+
+
+```{r}
+# clients in upper lawrenceville analysis
+
+# get clients who lived in UL and filter to those clients
+upper_id <- df %>% 
+  filter(hood == "Upper Lawrenceville") %>%
+  select(CLIENT_ID) %>%
+  unique()
+
+target <- pull(upper_id, CLIENT_ID)
+
+df_upper <- df %>%
+  filter(CLIENT_ID %in% target)
+
+df_upper %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(GENDER) %>%
+  summarise(total = n())
+
+
+df_upper %>% 
+  select(CLIENT_ID, RACE, GENDER) %>%
+  unique() %>%
+  group_by(RACE) %>%
+  summarise(total = n())
+```
+
+
+
+```{r}
+# clients with only one record who lived in UL
+
+movein_upper <- df_upper %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_movein) %>%
+  summarize(total = n()) 
+
+movein_upper
+movein_upper %>%
+  ggplot(aes(year_movein, total)) + geom_col()
+
+moveout_upper <- df_upper %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() == 1) %>%
+  group_by(year_moveout) %>%
+  summarize(total = n()) 
+
+moveout_upper
+moveout_upper %>%
+  ggplot(aes(year_moveout, total)) + geom_col()
+```
+
+
+```{r}
+# clients in UL who moved to another place
+# self join to see where they moved next
+
+df_upper2 <- df_upper %>%
+  group_by(CLIENT_ID) %>%
+  filter(n() > 1) %>%
+  ungroup()
+  
+df_upper2_copy <- df_upper2 %>%
+  select(CLIENT_ID, MOVEINDATE, MOVEOUTDATE, hood, year_movein, year_moveout)
+
+moves_upper <- df_upper2 %>% 
+  left_join(df_upper2_copy, by="CLIENT_ID") %>%
+  filter(MOVEINDATE.x < MOVEINDATE.y) %>%
+  select(MOVEINDATE.x, MOVEINDATE.y, hood.x, hood.y) %>%
+  filter(hood.x == "Upper Lawrenceville")
+
+
+neighbor_moves_upper <- moves_upper %>%
+  group_by(hood.y) %>%
+  summarise(total=n()) 
+
+neighbor_moves_upper
+neighbor_moves_upper %>%
+  ggplot(aes(x=reorder(hood.y, total), y=total)) + 
+  geom_col() +
+  labs(title = "Moves from Upper Lawrenceville") +
+  xlab("Neighborhood") +
+  ylab("Count") +
+  coord_flip() 
+
+
+```
+
+
