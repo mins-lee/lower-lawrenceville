@@ -2,8 +2,6 @@
 title: "Housing Voucher EDA"
 output: html_notebook
 ---
-# TODO: create tables
-# push code
 
 ```{r}
 library(tidyverse)
@@ -11,7 +9,7 @@ library(lubridate)
 
 theme_set(theme_bw())
 
-neighbor <- read_csv("./voucher_with_neighborhood.csv")
+neighbor <- read_csv("./housing_voucher/data/voucher_with_neighborhood.csv")
 df <- neighbor %>%
   select(
     HA, CLIENT_ID, GENDER, RACE, RELATIONSHIP, MOVEINDATE, MOVEOUTDATE, PRIMARYSTREET, ZIP, tenure, 
@@ -110,16 +108,6 @@ df_lower %>%
   unique() %>%
   group_by(RACE) %>%
   summarise(total = n())
-
-```
-```{r}
-# library(lubridate)
-# 
-# df_lower <- df_lower %>%
-#   mutate(
-#     year_movein = year(MOVEINDATE),
-#     year_moveout = year(MOVEOUTDATE)
-#     )
 
 ```
 
